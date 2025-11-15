@@ -18,6 +18,9 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 | **[ARCHITECTURE.md](./ARCHITECTURE.md)** | Technical architecture, system design, database schema, API specs |
 | **[STAKEHOLDER_ANALYSIS.md](./STAKEHOLDER_ANALYSIS.md)** | Merchant, User, Product Owner perspectives + business model |
 | **[MVP_ROADMAP.md](./MVP_ROADMAP.md)** | Week-by-week implementation plan (4-6 weeks to launch) |
+| **[TECH_STACK_GOLANG.md](./TECH_STACK_GOLANG.md)** | Golang implementation guide: frameworks, libraries, multi-chain architecture |
+| **[TOURISM_USE_CASES.md](./TOURISM_USE_CASES.md)** | Detailed use cases for hotels, restaurants, tourist services in Da Nang |
+| **[GETTING_STARTED.md](./GETTING_STARTED.md)** | Step-by-step guide for dev team to start implementation |
 
 ---
 
@@ -34,9 +37,11 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 - ✅ Audit logging for all transactions
 
 **Tech Stack**
-- Backend: Node.js + TypeScript + Express + Prisma + PostgreSQL
+- Backend: **Golang** + Gin + GORM + PostgreSQL
 - Frontend: Next.js + TailwindCSS
-- Blockchain: Solana (@solana/web3.js)
+- Blockchain: **Solana + BNB Chain (BSC)** (multi-chain from MVP)
+  - Solana: USDT, USDC
+  - BSC: USDT, BUSD
 - Infrastructure: Docker + NGINX + Redis
 
 **Target Metrics (Month 1)**
@@ -65,11 +70,11 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 
 ## 🎯 Target Market
 
-### Primary: Tourism & E-commerce in Da Nang
-- **Hotels/Restaurants**: Accept crypto from international tourists
-- **E-commerce**: Tech-savvy customers who hold crypto
-- **Luxury goods**: High-value transactions (jewelry, watches)
-- **Freelancers**: Receive payments from global clients
+### Primary: Tourism in Da Nang (Hotels & Restaurants)
+- **Hotels**: Room deposits, check-in payments, spa/minibar extras
+- **Restaurants**: Dine-in bills, takeaway orders, tourist group payments
+- **Tourist Services**: Water sports, spa, motorbike rental, day tours
+- **Multi-stablecoin**: USDT/USDC (Solana), USDT/BUSD (BSC) for flexibility
 
 ### Market Size
 - Vietnam e-commerce: 500T VND/year
