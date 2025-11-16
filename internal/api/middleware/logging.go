@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
 
@@ -34,7 +35,7 @@ func RequestLogger() gin.HandlerFunc {
 		startTime := time.Now()
 
 		// Log request
-		logger.WithContext(ctx).WithFields(logger.Fields{
+		logger.WithContext(ctx).WithFields(logrus.Fields{
 			"method":         c.Request.Method,
 			"path":           c.Request.URL.Path,
 			"query":          c.Request.URL.RawQuery,
@@ -54,7 +55,7 @@ func RequestLogger() gin.HandlerFunc {
 		statusCode := c.Writer.Status()
 		logLevel := getLogLevel(statusCode)
 
-		fields := logger.Fields{
+		fields := logrus.Fields{
 			"method":         c.Request.Method,
 			"path":           c.Request.URL.Path,
 			"status":         statusCode,
@@ -100,7 +101,7 @@ func Recovery() gin.HandlerFunc {
 		defer func() {
 			if err := recover(); err != nil {
 				ctx := c.Request.Context()
-				logger.WithContext(ctx).WithFields(logger.Fields{
+				logger.WithContext(ctx).WithFields(logrus.Fields{
 					"error": err,
 					"path":  c.Request.URL.Path,
 				}).Error("Panic recovered")
