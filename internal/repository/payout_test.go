@@ -3,7 +3,6 @@ package repository
 import (
 	"database/sql"
 	"testing"
-	"time"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 

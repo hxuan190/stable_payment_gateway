@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hxuan190/stable_payment_gateway/internal/config"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 
@@ -19,21 +20,31 @@ import (
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	db, err := database.NewPostgresDB(database.Config{
-		Host:     getEnvOrDefault("TEST_DB_HOST", "localhost"),
-		Port:     getEnvOrDefault("TEST_DB_PORT", "5432"),
-		User:     getEnvOrDefault("TEST_DB_USER", "postgres"),
-		Password: getEnvOrDefault("TEST_DB_PASSWORD", "postgres"),
-		Database: getEnvOrDefault("TEST_DB_NAME", "payment_gateway_test"),
-		SSLMode:  "disable",
-	})
+	cfg := &config.DatabaseConfig{
+		Host:         getEnvOrDefault("TEST_DB_HOST", "localhost"),
+		Port:         getEnvOrDefaultInt("TEST_DB_PORT", 5432),
+		User:         getEnvOrDefault("TEST_DB_USER", "postgres"),
+		Password:     getEnvOrDefault("TEST_DB_PASSWORD", "postgres"),
+		Database:     getEnvOrDefault("TEST_DB_NAME", "payment_gateway_test"),
+		SSLMode:      "disable",
+		MaxOpenConns: 10,
+		MaxIdleConns: 5,
+	}
+
+	pgDB, err := database.New(cfg)
 	require.NoError(t, err, "Failed to connect to test database")
 
-	return db
+	return pgDB.DB
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
 	// In a real test, you'd use os.Getenv(key)
+	// For this example, we'll return the default
+	return defaultValue
+}
+
+func getEnvOrDefaultInt(key string, defaultValue int) int {
+	// In a real test, you'd use os.Getenv(key) and convert to int
 	// For this example, we'll return the default
 	return defaultValue
 }
