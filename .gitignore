@@ -1,0 +1,75 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Build artifacts
+/bin/
+/dist/
+/build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Vendor directory (if using vendoring)
+vendor/
+
+# Private keys and secrets (CRITICAL - NEVER COMMIT THESE)
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# Docker volumes
+docker/data/
+
+# Test coverage
+coverage.txt
+coverage.html
+
+# Air live reload
+.air.toml
+tmp/
+
+# Application binaries (only in root)
+/api
+/listener
+/worker
+/admin
