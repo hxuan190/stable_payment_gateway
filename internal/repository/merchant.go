@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/model"
 )
 
 var (
