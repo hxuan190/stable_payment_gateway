@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KYC Review Required</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .content {
+            background: #ffffff;
+            padding: 30px;
+            border: 1px solid #e0e0e0;
+            border-top: none;
+        }
+        .highlight {
+            background: #fef2f2;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #ef4444;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #ef4444;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>KYC Review Required</h1>
+        <p>Additional information needed</p>
+    </div>
+
+    <div class="content">
+        <p>Thank you for your interest in Stablecoin Payment Gateway. Unfortunately, we need additional information to complete your account verification.</p>
+
+        <div class="highlight">
+            <p><strong>Merchant ID:</strong> {{merchant_id}}</p>
+            <p><strong>Reason:</strong></p>
+            <p>{{reason}}</p>
+        </div>
+
+        <h3>What happens next?</h3>
+        <p>Our compliance team has reviewed your application and identified some items that need clarification. Please address the issues mentioned above and resubmit your application.</p>
+
+        <h3>How to resubmit:</h3>
+        <ol>
+            <li>Log in to your merchant dashboard</li>
+            <li>Navigate to the KYC section</li>
+            <li>Update the required information</li>
+            <li>Resubmit for review</li>
+        </ol>
+
+        <p>Our team typically processes resubmissions within 24-48 hours.</p>
+
+        <center>
+            <a href="https://dashboard.yourgateway.com/kyc" class="button">Update KYC Information</a>
+        </center>
+
+        <div class="footer">
+            <p>This is an automated message from Stablecoin Payment Gateway</p>
+            <p>If you have any questions, please contact support@yourgateway.com</p>
+        </div>
+    </div>
+</body>
+</html>
