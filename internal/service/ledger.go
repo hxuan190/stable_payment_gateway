@@ -407,6 +407,113 @@ func (s *LedgerService) RecordPayoutCancelled(
 	return nil
 }
 
+// RecordPayoutRejected records when a payout request is rejected by admin
+// This releases the reserved balance back to available
+func (s *LedgerService) RecordPayoutRejected(
+	payoutID, merchantID string,
+	amount decimal.Decimal,
+) error {
+	// Validate inputs
+	if err := s.validateBasicInputs(payoutID, merchantID, amount, "VND"); err != nil {
+		return err
+	}
+
+	transactionGroup := uuid.New().String()
+
+	// Create ledger entries documenting the rejection
+	entries := []*model.LedgerEntry{
+		// Debit: Merchant reserved balance (unreserve)
+		{
+			DebitAccount:     s.getMerchantReservedAccount(merchantID),
+			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
+			Amount:           amount,
+			Currency:         "VND",
+			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceID:      payoutID,
+			MerchantID:       sql.NullString{String: merchantID, Valid: true},
+			Description:      fmt.Sprintf("Payout %s rejected: releasing %s VND from reserve", payoutID, amount.String()),
+			TransactionGroup: transactionGroup,
+			EntryType:        model.EntryTypeDebit,
+			Metadata:         model.JSONBMap{"payout_status": "rejected"},
+		},
+		// Credit: Merchant available balance (funds returned)
+		{
+			DebitAccount:     s.getMerchantReservedAccount(merchantID),
+			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
+			Amount:           amount,
+			Currency:         "VND",
+			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceID:      payoutID,
+			MerchantID:       sql.NullString{String: merchantID, Valid: true},
+			Description:      fmt.Sprintf("Payout %s rejected: funds returned to available balance", payoutID),
+			TransactionGroup: transactionGroup,
+			EntryType:        model.EntryTypeCredit,
+			Metadata:         model.JSONBMap{"payout_status": "rejected"},
+		},
+	}
+
+	// Create ledger entries
+	if err := s.ledgerRepo.CreateEntries(entries); err != nil {
+		return fmt.Errorf("failed to create ledger entries: %w", err)
+	}
+
+	return nil
+}
+
+// RecordPayoutFailed records when a payout fails (e.g., bank transfer failed)
+// This releases the reserved balance back to available
+func (s *LedgerService) RecordPayoutFailed(
+	payoutID, merchantID string,
+	amount decimal.Decimal,
+	reason string,
+) error {
+	// Validate inputs
+	if err := s.validateBasicInputs(payoutID, merchantID, amount, "VND"); err != nil {
+		return err
+	}
+
+	transactionGroup := uuid.New().String()
+
+	// Create ledger entries documenting the failure
+	entries := []*model.LedgerEntry{
+		// Debit: Merchant reserved balance (unreserve)
+		{
+			DebitAccount:     s.getMerchantReservedAccount(merchantID),
+			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
+			Amount:           amount,
+			Currency:         "VND",
+			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceID:      payoutID,
+			MerchantID:       sql.NullString{String: merchantID, Valid: true},
+			Description:      fmt.Sprintf("Payout %s failed: releasing %s VND from reserve - %s", payoutID, amount.String(), reason),
+			TransactionGroup: transactionGroup,
+			EntryType:        model.EntryTypeDebit,
+			Metadata:         model.JSONBMap{"payout_status": "failed", "failure_reason": reason},
+		},
+		// Credit: Merchant available balance (funds returned)
+		{
+			DebitAccount:     s.getMerchantReservedAccount(merchantID),
+			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
+			Amount:           amount,
+			Currency:         "VND",
+			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceID:      payoutID,
+			MerchantID:       sql.NullString{String: merchantID, Valid: true},
+			Description:      fmt.Sprintf("Payout %s failed: funds returned to available balance", payoutID),
+			TransactionGroup: transactionGroup,
+			EntryType:        model.EntryTypeCredit,
+			Metadata:         model.JSONBMap{"payout_status": "failed", "failure_reason": reason},
+		},
+	}
+
+	// Create ledger entries
+	if err := s.ledgerRepo.CreateEntries(entries); err != nil {
+		return fmt.Errorf("failed to create ledger entries: %w", err)
+	}
+
+	return nil
+}
+
 // RecordOTCConversion records when we convert crypto to VND via OTC partner
 // This decreases crypto pool and increases VND pool
 //
