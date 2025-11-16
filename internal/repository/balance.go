@@ -717,3 +717,218 @@ func (r *BalanceRepository) List(limit, offset int) ([]*model.MerchantBalance, e
 
 	return balances, nil
 }
+
+// IncrementPendingTx atomically increments the pending balance within a transaction
+func (r *BalanceRepository) IncrementPendingTx(tx *sql.Tx, merchantID string, amount decimal.Decimal) error {
+	if tx == nil {
+		return errors.New("transaction cannot be nil")
+	}
+
+	if merchantID == "" {
+		return errors.New("merchant ID cannot be empty")
+	}
+
+	if amount.LessThan(decimal.Zero) {
+		return ErrNegativeAmount
+	}
+
+	query := `
+		UPDATE merchant_balances
+		SET
+			pending_vnd = pending_vnd + $1,
+			total_vnd = total_vnd + $1,
+			total_received_vnd = total_received_vnd + $1,
+			total_payments_count = total_payments_count + 1,
+			last_payment_at = $2,
+			version = version + 1,
+			updated_at = $2
+		WHERE merchant_id = $3
+		RETURNING id
+	`
+
+	now := time.Now()
+	var id string
+	err := tx.QueryRow(query, amount, now, merchantID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrBalanceNotFound
+		}
+		return fmt.Errorf("failed to increment pending balance: %w", err)
+	}
+
+	return nil
+}
+
+// ConvertPendingToAvailableTx moves balance from pending to available (after OTC conversion)
+// This is typically done after confirming a payment
+func (r *BalanceRepository) ConvertPendingToAvailableTx(tx *sql.Tx, merchantID string, amount, fee decimal.Decimal) error {
+	if tx == nil {
+		return errors.New("transaction cannot be nil")
+	}
+
+	if merchantID == "" {
+		return errors.New("merchant ID cannot be empty")
+	}
+
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return errors.New("amount must be positive")
+	}
+
+	if fee.LessThan(decimal.Zero) {
+		return errors.New("fee cannot be negative")
+	}
+
+	if fee.GreaterThanOrEqual(amount) {
+		return errors.New("fee cannot be greater than or equal to amount")
+	}
+
+	netAmount := amount.Sub(fee)
+
+	query := `
+		UPDATE merchant_balances
+		SET
+			pending_vnd = pending_vnd - $1,
+			available_vnd = available_vnd + $2,
+			total_fees_vnd = total_fees_vnd + $3,
+			version = version + 1,
+			updated_at = $4
+		WHERE merchant_id = $5 AND pending_vnd >= $1
+		RETURNING id
+	`
+
+	now := time.Now()
+	var id string
+	err := tx.QueryRow(query, amount, netAmount, fee, now, merchantID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrInsufficientBalance
+		}
+		return fmt.Errorf("failed to convert pending to available: %w", err)
+	}
+
+	return nil
+}
+
+// ReserveBalanceTx reserves balance for a pending payout within a transaction
+func (r *BalanceRepository) ReserveBalanceTx(tx *sql.Tx, merchantID string, amount decimal.Decimal) error {
+	if tx == nil {
+		return errors.New("transaction cannot be nil")
+	}
+
+	if merchantID == "" {
+		return errors.New("merchant ID cannot be empty")
+	}
+
+	if amount.LessThan(decimal.Zero) {
+		return ErrNegativeAmount
+	}
+
+	// Reserved balance is deducted from available but doesn't affect total
+	query := `
+		UPDATE merchant_balances
+		SET
+			reserved_vnd = reserved_vnd + $1,
+			version = version + 1,
+			updated_at = $2
+		WHERE merchant_id = $3 AND available_vnd >= reserved_vnd + $1
+		RETURNING id
+	`
+
+	now := time.Now()
+	var id string
+	err := tx.QueryRow(query, amount, now, merchantID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrInsufficientBalance
+		}
+		return fmt.Errorf("failed to reserve balance: %w", err)
+	}
+
+	return nil
+}
+
+// ReleaseReservedBalanceTx releases reserved balance within a transaction
+func (r *BalanceRepository) ReleaseReservedBalanceTx(tx *sql.Tx, merchantID string, amount decimal.Decimal) error {
+	if tx == nil {
+		return errors.New("transaction cannot be nil")
+	}
+
+	if merchantID == "" {
+		return errors.New("merchant ID cannot be empty")
+	}
+
+	if amount.LessThan(decimal.Zero) {
+		return ErrNegativeAmount
+	}
+
+	query := `
+		UPDATE merchant_balances
+		SET
+			reserved_vnd = reserved_vnd - $1,
+			version = version + 1,
+			updated_at = $2
+		WHERE merchant_id = $3 AND reserved_vnd >= $1
+		RETURNING id
+	`
+
+	now := time.Now()
+	var id string
+	err := tx.QueryRow(query, amount, now, merchantID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrBalanceNotFound
+		}
+		return fmt.Errorf("failed to release reserved balance: %w", err)
+	}
+
+	return nil
+}
+
+// DeductBalanceTx deducts from available and reserved balance (when payout is completed)
+func (r *BalanceRepository) DeductBalanceTx(tx *sql.Tx, merchantID string, amount, fee decimal.Decimal) error {
+	if tx == nil {
+		return errors.New("transaction cannot be nil")
+	}
+
+	if merchantID == "" {
+		return errors.New("merchant ID cannot be empty")
+	}
+
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return errors.New("amount must be positive")
+	}
+
+	if fee.LessThan(decimal.Zero) {
+		return errors.New("fee cannot be negative")
+	}
+
+	totalDeduction := amount.Add(fee)
+
+	query := `
+		UPDATE merchant_balances
+		SET
+			available_vnd = available_vnd - $1,
+			total_vnd = total_vnd - $1,
+			reserved_vnd = reserved_vnd - $1,
+			total_paid_out_vnd = total_paid_out_vnd + $2,
+			total_fees_vnd = total_fees_vnd + $3,
+			total_payouts_count = total_payouts_count + 1,
+			last_payout_at = $4,
+			version = version + 1,
+			updated_at = $4
+		WHERE merchant_id = $5 AND available_vnd >= $1 AND reserved_vnd >= $1
+		RETURNING id
+	`
+
+	now := time.Now()
+	var id string
+	err := tx.QueryRow(query, totalDeduction, amount, fee, now, merchantID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrInsufficientBalance
+		}
+		return fmt.Errorf("failed to deduct balance: %w", err)
+	}
+
+	return nil
+}
