@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/programs/system"
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/mr-tron/base58"
@@ -145,7 +147,8 @@ func (w *Wallet) GetTokenBalance(ctx context.Context, tokenMint string) (decimal
 
 	// Parse token account data
 	var tokenAccount token.Account
-	err = tokenAccount.UnmarshalWithDecoder(solana.NewBinDecoder(accountInfo.Value.Data.GetBinary()))
+	decoder := bin.NewBorshDecoder(accountInfo.Value.Data.GetBinary())
+	err = tokenAccount.UnmarshalWithDecoder(decoder)
 	if err != nil {
 		return decimal.Zero, fmt.Errorf("failed to parse token account: %w", err)
 	}
@@ -157,7 +160,7 @@ func (w *Wallet) GetTokenBalance(ctx context.Context, tokenMint string) (decimal
 	}
 
 	// Convert raw amount to decimal based on token decimals
-	rawAmount := decimal.NewFromBigInt(tokenAccount.Amount.BigInt(), 0)
+	rawAmount := decimal.NewFromUint64(tokenAccount.Amount)
 	divisor := decimal.NewFromInt(10).Pow(decimal.NewFromInt(int64(mintInfo.Decimals)))
 	balance := rawAmount.Div(divisor)
 
@@ -181,7 +184,8 @@ func (w *Wallet) GetTokenMintInfo(ctx context.Context, tokenMint string) (*token
 	}
 
 	var mintInfo token.Mint
-	err = mintInfo.UnmarshalWithDecoder(solana.NewBinDecoder(accountInfo.Value.Data.GetBinary()))
+	decoder := bin.NewBorshDecoder(accountInfo.Value.Data.GetBinary())
+	err = mintInfo.UnmarshalWithDecoder(decoder)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse mint info: %w", err)
 	}
@@ -332,7 +336,7 @@ func (w *Wallet) VerifyTransaction(ctx context.Context, signature solana.Signatu
 
 // CreateTransferInstruction creates a SOL transfer instruction
 func (w *Wallet) CreateTransferInstruction(to solana.PublicKey, lamports uint64) solana.Instruction {
-	return solana.NewTransferInstruction(
+	return system.NewTransferInstruction(
 		lamports,
 		w.publicKey,
 		to,
