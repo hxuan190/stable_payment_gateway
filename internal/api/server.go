@@ -68,9 +68,9 @@ func (s *Server) setupRouter() {
 	router := gin.New()
 
 	// Global middleware
-	router.Use(gin.Recovery()) // Recover from panics
+	router.Use(gin.Recovery())             // Recover from panics
 	router.Use(middleware.RequestLogger()) // Log all requests
-	router.Use(s.corsMiddleware()) // CORS configuration
+	router.Use(s.corsMiddleware())         // CORS configuration
 
 	// Set up routes
 	s.setupRoutes(router)
@@ -125,10 +125,15 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	// Initialize repositories
 	merchantRepo := s.initMerchantRepository()
 	paymentRepo := s.initPaymentRepository()
+	payoutRepo := s.initPayoutRepository()
+	balanceRepo := s.initBalanceRepository()
+	ledgerRepo := s.initLedgerRepository()
 
 	// Initialize services
 	exchangeRateService := s.initExchangeRateService()
+	ledgerService := s.initLedgerService(ledgerRepo)
 	paymentService := s.initPaymentService(paymentRepo, merchantRepo, exchangeRateService)
+	payoutService := s.initPayoutService(payoutRepo, merchantRepo, balanceRepo, ledgerService)
 
 	// Initialize handlers
 	// Use storage base URL or construct from API config
@@ -137,6 +142,7 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		baseURL = fmt.Sprintf("http://%s:%d", s.config.API.Host, s.config.API.Port)
 	}
 	paymentHandler := handler.NewPaymentHandler(paymentService, baseURL)
+	payoutHandler := handler.NewPayoutHandler(payoutService)
 
 	// Public routes (no authentication required)
 	router.GET("/health", healthHandler.Health)
@@ -160,20 +166,20 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 			paymentGroup.GET("", paymentHandler.ListPayments)
 		}
 
-		// TODO: Merchant routes (API key authentication required)
-		// merchantGroup := v1.Group("/merchant")
-		// merchantGroup.Use(middleware.APIKeyAuth(middleware.APIKeyAuthConfig{
-		//     MerchantRepo: merchantRepo,
-		//     Cache:        s.cache,
-		//     CacheTTL:     5 * time.Minute,
-		// }))
-		// {
-		//     merchantGroup.GET("/balance", merchantHandler.GetBalance)
-		//     merchantGroup.GET("/transactions", merchantHandler.GetTransactions)
-		//     merchantGroup.POST("/payouts", payoutHandler.RequestPayout)
-		//     merchantGroup.GET("/payouts", payoutHandler.ListPayouts)
-		//     merchantGroup.GET("/payouts/:id", payoutHandler.GetPayout)
-		// }
+		// Merchant routes (API key authentication required)
+		merchantGroup := v1.Group("/merchant")
+		merchantGroup.Use(middleware.APIKeyAuth(middleware.APIKeyAuthConfig{
+			MerchantRepo: merchantRepo,
+			Cache:        s.cache,
+			CacheTTL:     5 * time.Minute,
+		}))
+		{
+			// TODO: merchantGroup.GET("/balance", merchantHandler.GetBalance)
+			// TODO: merchantGroup.GET("/transactions", merchantHandler.GetTransactions)
+			merchantGroup.POST("/payouts", payoutHandler.RequestPayout)
+			merchantGroup.GET("/payouts", payoutHandler.ListPayouts)
+			merchantGroup.GET("/payouts/:id", payoutHandler.GetPayout)
+		}
 
 		// TODO: Public payment page (no auth, read-only)
 		// v1.GET("/pay/:id", paymentHandler.GetPublicPayment)
@@ -274,6 +280,18 @@ func (s *Server) initPaymentRepository() *repository.PaymentRepository {
 	return repository.NewPaymentRepository(s.db, logger.GetLogger())
 }
 
+func (s *Server) initPayoutRepository() *repository.PayoutRepository {
+	return repository.NewPayoutRepository(s.db, logger.GetLogger())
+}
+
+func (s *Server) initBalanceRepository() *repository.BalanceRepository {
+	return repository.NewBalanceRepository(s.db, logger.GetLogger())
+}
+
+func (s *Server) initLedgerRepository() *repository.LedgerRepository {
+	return repository.NewLedgerRepository(s.db, logger.GetLogger())
+}
+
 // Service initialization helpers
 
 func (s *Server) initExchangeRateService() *service.ExchangeRateService {
@@ -300,8 +318,29 @@ func (s *Server) initPaymentService(
 			DefaultCurrency: "USDT",
 			WalletAddress:   s.solanaWallet.GetAddress(),
 			FeePercentage:   0.01, // 1% fee
-			ExpiryMinutes:   30,    // 30 minutes expiry
+			ExpiryMinutes:   30,   // 30 minutes expiry
 		},
 		logger.GetLogger(),
+	)
+}
+
+func (s *Server) initLedgerService(
+	ledgerRepo *repository.LedgerRepository,
+) *service.LedgerService {
+	return service.NewLedgerService(ledgerRepo, logger.GetLogger())
+}
+
+func (s *Server) initPayoutService(
+	payoutRepo *repository.PayoutRepository,
+	merchantRepo *repository.MerchantRepository,
+	balanceRepo *repository.BalanceRepository,
+	ledgerService *service.LedgerService,
+) *service.PayoutService {
+	return service.NewPayoutService(
+		payoutRepo,
+		merchantRepo,
+		balanceRepo,
+		ledgerService,
+		s.db,
 	)
 }
