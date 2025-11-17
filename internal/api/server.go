@@ -71,6 +71,7 @@ func (s *Server) setupRouter() {
 	router.Use(gin.Recovery())             // Recover from panics
 	router.Use(middleware.RequestLogger()) // Log all requests
 	router.Use(s.corsMiddleware())         // CORS configuration
+	router.Use(s.rateLimitMiddleware())    // Rate limiting
 
 	// Set up routes
 	s.setupRoutes(router)
@@ -103,12 +104,36 @@ func (s *Server) corsMiddleware() gin.HandlerFunc {
 			"X-RateLimit-Limit",
 			"X-RateLimit-Remaining",
 			"X-RateLimit-Reset",
+			"Retry-After",
 		},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}
 
 	return cors.New(config)
+}
+
+// rateLimitMiddleware configures rate limiting
+func (s *Server) rateLimitMiddleware() gin.HandlerFunc {
+	// Get Redis client from cache
+	redisCache, ok := s.cache.(*cache.RedisCache)
+	if !ok {
+		logger.Warn("Rate limiting disabled: Redis cache not available")
+		// Return a no-op middleware if Redis is not available
+		return func(c *gin.Context) {
+			c.Next()
+		}
+	}
+
+	redisClient := redisCache.GetClient()
+	rateLimiter := middleware.NewRedisRateLimiter(redisClient)
+
+	return middleware.RateLimit(middleware.RateLimitConfig{
+		Limiter:     rateLimiter,
+		APIKeyLimit: s.config.Security.RateLimitPerMinute,
+		IPLimit:     1000, // 1000 requests/minute per IP (global)
+		Window:      1 * time.Minute,
+	})
 }
 
 // setupRoutes configures all API routes
