@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Settlement Report</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .content {
+            background: #ffffff;
+            padding: 30px;
+            border: 1px solid #e0e0e0;
+            border-top: none;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #6366f1;
+        }
+        .stat-label {
+            color: #6b7280;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #111827;
+            margin-top: 5px;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .table th {
+            background: #f3f4f6;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .table td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .alert {
+            background: #fef3c7;
+            border: 1px solid #fbbf24;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Daily Settlement Report</h1>
+        <p>{{date}}</p>
+    </div>
+
+    <div class="content">
+        <h2>Summary Statistics</h2>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Payments Received</div>
+                <div class="stat-value">{{total_payments_count}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Volume (VND)</div>
+                <div class="stat-value">{{total_volume_vnd}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Payouts Processed</div>
+                <div class="stat-value">{{total_payouts_count}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Revenue (Fees)</div>
+                <div class="stat-value">{{total_fees_vnd}}</div>
+            </div>
+        </div>
+
+        <h2>Wallet Balances</h2>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Wallet</th>
+                    <th>Balance</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Solana Hot Wallet (USDT)</td>
+                    <td>{{solana_usdt_balance}}</td>
+                    <td>{{solana_status}}</td>
+                </tr>
+                <tr>
+                    <td>VND Pool</td>
+                    <td>{{vnd_pool_balance}}</td>
+                    <td>{{vnd_status}}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Pending Actions</h2>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Count</th>
+                    <th>Total Amount (VND)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Pending KYC Approvals</td>
+                    <td>{{pending_kyc_count}}</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td>Pending Payout Approvals</td>
+                    <td>{{pending_payout_count}}</td>
+                    <td>{{pending_payout_amount}}</td>
+                </tr>
+                <tr>
+                    <td>Failed Webhooks</td>
+                    <td>{{failed_webhook_count}}</td>
+                    <td>-</td>
+                </tr>
+            </tbody>
+        </table>
+
+        {{#if alerts}}
+        <div class="alert">
+            <strong>⚠️ Alerts</strong><br>
+            {{alerts}}
+        </div>
+        {{/if}}
+
+        <div class="footer">
+            <p>This is an automated daily report from Stablecoin Payment Gateway Operations</p>
+            <p>Report generated at {{generated_at}}</p>
+        </div>
+    </div>
+</body>
+</html>
