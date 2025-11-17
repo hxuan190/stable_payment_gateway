@@ -135,6 +135,9 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	paymentService := s.initPaymentService(paymentRepo, merchantRepo, exchangeRateService)
 	payoutService := s.initPayoutService(payoutRepo, merchantRepo, balanceRepo, ledgerService)
 
+	// Initialize merchant service for admin
+	merchantService := s.initMerchantService(merchantRepo, balanceRepo)
+
 	// Initialize handlers
 	// Use storage base URL or construct from API config
 	baseURL := s.config.Storage.BaseURL
@@ -143,6 +146,15 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	}
 	paymentHandler := handler.NewPaymentHandler(paymentService, baseURL)
 	payoutHandler := handler.NewPayoutHandler(payoutService)
+	adminHandler := handler.NewAdminHandler(
+		merchantService,
+		payoutService,
+		merchantRepo,
+		payoutRepo,
+		paymentRepo,
+		balanceRepo,
+		s.solanaWallet,
+	)
 
 	// Public routes (no authentication required)
 	router.GET("/health", healthHandler.Health)
@@ -186,26 +198,26 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	}
 
 	// Admin routes (JWT authentication required)
-	// adminGroup := router.Group("/api/admin")
-	// adminGroup.Use(middleware.JWTAuth(s.config.JWT.Secret))
-	// {
-	//     // KYC management
-	//     adminGroup.POST("/merchants/:id/kyc/approve", adminHandler.ApproveKYC)
-	//     adminGroup.POST("/merchants/:id/kyc/reject", adminHandler.RejectKYC)
-	//     adminGroup.GET("/merchants", adminHandler.ListMerchants)
-	//     adminGroup.GET("/merchants/:id", adminHandler.GetMerchant)
-	//
-	//     // Payout management
-	//     adminGroup.GET("/payouts", adminHandler.ListPayouts)
-	//     adminGroup.GET("/payouts/:id", adminHandler.GetPayout)
-	//     adminGroup.POST("/payouts/:id/approve", adminHandler.ApprovePayout)
-	//     adminGroup.POST("/payouts/:id/reject", adminHandler.RejectPayout)
-	//     adminGroup.POST("/payouts/:id/complete", adminHandler.CompletePayout)
-	//
-	//     // System statistics
-	//     adminGroup.GET("/stats", adminHandler.GetStats)
-	//     adminGroup.GET("/stats/daily", adminHandler.GetDailyStats)
-	// }
+	adminGroup := router.Group("/api/admin")
+	adminGroup.Use(middleware.JWTAuth(s.config.JWT.Secret))
+	{
+		// KYC management
+		adminGroup.POST("/merchants/:id/kyc/approve", adminHandler.ApproveKYC)
+		adminGroup.POST("/merchants/:id/kyc/reject", adminHandler.RejectKYC)
+		adminGroup.GET("/merchants", adminHandler.ListMerchants)
+		adminGroup.GET("/merchants/:id", adminHandler.GetMerchant)
+
+		// Payout management
+		adminGroup.GET("/payouts", adminHandler.ListPayouts)
+		adminGroup.GET("/payouts/:id", adminHandler.GetPayout)
+		adminGroup.POST("/payouts/:id/approve", adminHandler.ApprovePayout)
+		adminGroup.POST("/payouts/:id/reject", adminHandler.RejectPayout)
+		adminGroup.POST("/payouts/:id/complete", adminHandler.CompletePayout)
+
+		// System statistics
+		adminGroup.GET("/stats", adminHandler.GetStats)
+		adminGroup.GET("/stats/daily", adminHandler.GetDailyStats)
+	}
 
 	// 404 handler
 	router.NoRoute(func(c *gin.Context) {
@@ -341,6 +353,17 @@ func (s *Server) initPayoutService(
 		merchantRepo,
 		balanceRepo,
 		ledgerService,
+		s.db,
+	)
+}
+
+func (s *Server) initMerchantService(
+	merchantRepo *repository.MerchantRepository,
+	balanceRepo *repository.BalanceRepository,
+) *service.MerchantService {
+	return service.NewMerchantService(
+		merchantRepo,
+		balanceRepo,
 		s.db,
 	)
 }
