@@ -13,8 +13,11 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
+	"github.com/hxuan190/stable_payment_gateway/internal/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/service"
 )
 
 // Server represents the HTTP server
@@ -119,6 +122,22 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		s.config.Version,
 	)
 
+	// Initialize repositories
+	merchantRepo := s.initMerchantRepository()
+	paymentRepo := s.initPaymentRepository()
+
+	// Initialize services
+	exchangeRateService := s.initExchangeRateService()
+	paymentService := s.initPaymentService(paymentRepo, merchantRepo, exchangeRateService)
+
+	// Initialize handlers
+	// Use storage base URL or construct from API config
+	baseURL := s.config.Storage.BaseURL
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://%s:%d", s.config.API.Host, s.config.API.Port)
+	}
+	paymentHandler := handler.NewPaymentHandler(paymentService, baseURL)
+
 	// Public routes (no authentication required)
 	router.GET("/health", healthHandler.Health)
 
@@ -128,23 +147,32 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		// Public endpoints
 		v1.GET("/status", healthHandler.Status)
 
+		// Payment routes (API key authentication required)
+		paymentGroup := v1.Group("/payments")
+		paymentGroup.Use(middleware.APIKeyAuth(middleware.APIKeyAuthConfig{
+			MerchantRepo: merchantRepo,
+			Cache:        s.cache,
+			CacheTTL:     5 * time.Minute,
+		}))
+		{
+			paymentGroup.POST("", paymentHandler.CreatePayment)
+			paymentGroup.GET("/:id", paymentHandler.GetPayment)
+			paymentGroup.GET("", paymentHandler.ListPayments)
+		}
+
 		// TODO: Merchant routes (API key authentication required)
 		// merchantGroup := v1.Group("/merchant")
-		// merchantGroup.Use(middleware.APIKeyAuth(merchantRepo))
+		// merchantGroup.Use(middleware.APIKeyAuth(middleware.APIKeyAuthConfig{
+		//     MerchantRepo: merchantRepo,
+		//     Cache:        s.cache,
+		//     CacheTTL:     5 * time.Minute,
+		// }))
 		// {
 		//     merchantGroup.GET("/balance", merchantHandler.GetBalance)
 		//     merchantGroup.GET("/transactions", merchantHandler.GetTransactions)
 		//     merchantGroup.POST("/payouts", payoutHandler.RequestPayout)
 		//     merchantGroup.GET("/payouts", payoutHandler.ListPayouts)
 		//     merchantGroup.GET("/payouts/:id", payoutHandler.GetPayout)
-		// }
-
-		// TODO: Payment routes (API key authentication required)
-		// paymentGroup := v1.Group("/payments")
-		// paymentGroup.Use(middleware.APIKeyAuth(merchantRepo))
-		// {
-		//     paymentGroup.POST("", paymentHandler.CreatePayment)
-		//     paymentGroup.GET("/:id", paymentHandler.GetPayment)
 		// }
 
 		// TODO: Public payment page (no auth, read-only)
@@ -234,4 +262,46 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // GetRouter returns the Gin router (useful for testing)
 func (s *Server) GetRouter() *gin.Engine {
 	return s.router
+}
+
+// Repository initialization helpers
+
+func (s *Server) initMerchantRepository() *repository.MerchantRepository {
+	return repository.NewMerchantRepository(s.db, logger.GetLogger())
+}
+
+func (s *Server) initPaymentRepository() *repository.PaymentRepository {
+	return repository.NewPaymentRepository(s.db, logger.GetLogger())
+}
+
+// Service initialization helpers
+
+func (s *Server) initExchangeRateService() *service.ExchangeRateService {
+	return service.NewExchangeRateService(
+		s.cache,
+		logger.GetLogger(),
+		service.ExchangeRateConfig{
+			CacheTTL: 5 * time.Minute,
+		},
+	)
+}
+
+func (s *Server) initPaymentService(
+	paymentRepo *repository.PaymentRepository,
+	merchantRepo *repository.MerchantRepository,
+	exchangeRateService *service.ExchangeRateService,
+) *service.PaymentService {
+	return service.NewPaymentService(
+		paymentRepo,
+		merchantRepo,
+		exchangeRateService,
+		service.PaymentServiceConfig{
+			DefaultChain:    model.ChainSolana,
+			DefaultCurrency: "USDT",
+			WalletAddress:   s.solanaWallet.GetAddress(),
+			FeePercentage:   0.01, // 1% fee
+			ExpiryMinutes:   30,    // 30 minutes expiry
+		},
+		logger.GetLogger(),
+	)
 }
