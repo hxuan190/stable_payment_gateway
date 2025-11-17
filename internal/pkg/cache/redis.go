@@ -78,3 +78,9 @@ func (r *RedisCache) Close() error {
 func (r *RedisCache) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }
+
+// GetClient returns the underlying Redis client
+// This is useful for advanced operations like rate limiting
+func (r *RedisCache) GetClient() *redis.Client {
+	return r.client
+}
