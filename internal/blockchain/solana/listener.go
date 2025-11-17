@@ -246,7 +246,7 @@ func (l *TransactionListener) listenWebSocket() {
 			}
 
 			// Receive notification
-			_, err := sub.Recv()
+			_, err := sub.Recv(l.ctx)
 			if err != nil {
 				fmt.Printf("WebSocket receive error: %v, reconnecting...\n", err)
 				sub.Unsubscribe()

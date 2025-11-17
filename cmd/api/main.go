@@ -8,7 +8,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hxuan190/stable_payment_gateway/internal/api"
+	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
@@ -69,11 +72,71 @@ func main() {
 		})
 	}
 
-	// TODO: Initialize Redis connection
+	// Initialize Redis connection
+	logger.Info("Initializing Redis connection...")
+	redisClient, err := cache.NewRedisCache(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password, cfg.Redis.DB)
+	if err != nil {
+		logger.Fatal("Failed to initialize Redis connection", err)
+	}
+
+	// Test Redis connection
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := redisClient.Ping(pingCtx); err != nil {
+		logger.Fatal("Redis connection failed", err)
+	}
+	logger.Info("Redis connection established")
+
+	// Initialize Solana client (optional for API server, but useful for health checks)
+	var solanaClient *solana.Client
+	var solanaWallet *solana.Wallet
+
+	if cfg.Solana.RPCURL != "" && cfg.Solana.WalletAddress != "" {
+		logger.Info("Initializing Solana client...")
+		solanaClient, err = solana.NewClientWithURL(cfg.Solana.RPCURL)
+		if err != nil {
+			logger.Warn("Failed to initialize Solana client (non-fatal for API server)", logger.Fields{
+				"error": err.Error(),
+			})
+		} else {
+			logger.Info("Solana client initialized", logger.Fields{
+				"network": cfg.Solana.Network,
+				"rpc_url": cfg.Solana.RPCURL,
+			})
+
+			// Initialize wallet if private key is provided
+			if cfg.Solana.WalletPrivateKey != "" {
+				solanaWallet, err = solana.LoadWallet(cfg.Solana.WalletPrivateKey, cfg.Solana.RPCURL)
+				if err != nil {
+					logger.Warn("Failed to load Solana wallet (non-fatal for API server)", logger.Fields{
+						"error": err.Error(),
+					})
+				} else {
+					logger.Info("Solana wallet loaded", logger.Fields{
+						"address": solanaWallet.GetAddress(),
+					})
+				}
+			}
+		}
+	}
+
+	// TODO: Initialize repositories
 	// TODO: Initialize services
-	// TODO: Set up HTTP server with Gin
-	// TODO: Set up routes and middleware
-	// TODO: Start HTTP server in goroutine
+
+	// Set up HTTP server
+	logger.Info("Setting up HTTP server...")
+	apiServer := api.NewServer(&api.ServerConfig{
+		Config:       cfg,
+		DB:           db.DB,
+		Cache:        redisClient,
+		SolanaClient: solanaClient,
+		SolanaWallet: solanaWallet,
+	})
+
+	// Start HTTP server
+	if err := apiServer.Start(); err != nil {
+		logger.Fatal("Failed to start HTTP server", err)
+	}
 
 	logger.Info("API server started successfully", logger.Fields{
 		"port": cfg.API.Port,
@@ -91,14 +154,20 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
+	// Shutdown HTTP server
+	if err := apiServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error("Error shutting down HTTP server", err)
+	}
+
+	// Close Redis connection
+	if err := redisClient.Close(); err != nil {
+		logger.Error("Error closing Redis connection", err)
+	}
+
 	// Close database connection
 	if err := db.Close(); err != nil {
 		logger.Error("Error closing database connection", err)
 	}
-
-	// TODO: Shutdown HTTP server
-	// TODO: Close Redis connection
-	// TODO: Close other resources
 
 	<-shutdownCtx.Done()
 	if shutdownCtx.Err() == context.DeadlineExceeded {
