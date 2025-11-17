@@ -132,7 +132,7 @@ func decodeTransferInstruction(instruction solana.CompiledInstruction, accountKe
 		return nil, fmt.Errorf("account index out of bounds")
 	}
 
-	sourceAccount := accountKeys[sourceAccountIdx]
+	// sourceAccount := accountKeys[sourceAccountIdx]  // Not used in MVP
 	destAccount := accountKeys[destAccountIdx]
 	authority := accountKeys[authorityIdx]
 
@@ -186,7 +186,7 @@ func decodeTransferCheckedInstruction(instruction solana.CompiledInstruction, ac
 		return nil, fmt.Errorf("account index out of bounds")
 	}
 
-	sourceAccount := accountKeys[sourceAccountIdx]
+	// sourceAccount := accountKeys[sourceAccountIdx]  // Not used in MVP
 	mint := accountKeys[mintIdx]
 	destAccount := accountKeys[destAccountIdx]
 	authority := accountKeys[authorityIdx]

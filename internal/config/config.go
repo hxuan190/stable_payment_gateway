@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -12,6 +13,7 @@ import (
 // Config holds all application configuration
 type Config struct {
 	Environment string
+	Version     string
 	API         APIConfig
 	Database    DatabaseConfig
 	Redis       RedisConfig
@@ -25,12 +27,12 @@ type Config struct {
 
 // APIConfig contains API server configuration
 type APIConfig struct {
-	Port         int
-	Host         string
-	RateLimit    int
-	ReadTimeout  int
-	WriteTimeout int
-	AllowOrigins []string
+	Port           int
+	Host           string
+	RateLimit      int
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
+	AllowedOrigins []string
 }
 
 // DatabaseConfig contains PostgreSQL configuration
@@ -124,13 +126,14 @@ func Load() (*Config, error) {
 
 	config := &Config{
 		Environment: getEnv("ENV", "development"),
+		Version:     getEnv("VERSION", "1.0.0"),
 		API: APIConfig{
-			Port:         getEnvAsInt("API_PORT", 8080),
-			Host:         getEnv("API_HOST", "0.0.0.0"),
-			RateLimit:    getEnvAsInt("API_RATE_LIMIT", 100),
-			ReadTimeout:  getEnvAsInt("API_READ_TIMEOUT", 30),
-			WriteTimeout: getEnvAsInt("API_WRITE_TIMEOUT", 30),
-			AllowOrigins: getEnvAsSlice("API_ALLOW_ORIGINS", []string{"http://localhost:3000"}),
+			Port:           getEnvAsInt("API_PORT", 8080),
+			Host:           getEnv("API_HOST", "0.0.0.0"),
+			RateLimit:      getEnvAsInt("API_RATE_LIMIT", 100),
+			ReadTimeout:    time.Duration(getEnvAsInt("API_READ_TIMEOUT", 30)) * time.Second,
+			WriteTimeout:   time.Duration(getEnvAsInt("API_WRITE_TIMEOUT", 30)) * time.Second,
+			AllowedOrigins: getEnvAsSlice("API_ALLOW_ORIGINS", []string{"http://localhost:3000"}),
 		},
 		Database: DatabaseConfig{
 			Host:         getEnv("DB_HOST", "localhost"),
