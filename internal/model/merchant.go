@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/shopspring/decimal"
 )
 
 // KYCStatus represents the KYC verification status
@@ -15,6 +16,15 @@ const (
 	KYCStatusApproved  KYCStatus = "approved"
 	KYCStatusRejected  KYCStatus = "rejected"
 	KYCStatusSuspended KYCStatus = "suspended"
+)
+
+// KYCTier represents the KYC tier level for compliance limits
+type KYCTier string
+
+const (
+	KYCTier1 KYCTier = "tier1" // $5,000/month - basic verification
+	KYCTier2 KYCTier = "tier2" // $50,000/month - enhanced verification
+	KYCTier3 KYCTier = "tier3" // $500,000/month - full business verification
 )
 
 // MerchantStatus represents the merchant account status
@@ -54,6 +64,12 @@ type Merchant struct {
 	KYCApprovedAt      sql.NullTime   `json:"kyc_approved_at,omitempty" db:"kyc_approved_at"`
 	KYCApprovedBy      sql.NullString `json:"kyc_approved_by,omitempty" db:"kyc_approved_by"`
 	KYCRejectionReason sql.NullString `json:"kyc_rejection_reason,omitempty" db:"kyc_rejection_reason"`
+
+	// KYC Tier and monthly limits (MVP v1.1 compliance)
+	KYCTier                 KYCTier         `json:"kyc_tier" db:"kyc_tier" validate:"required,oneof=tier1 tier2 tier3"`
+	MonthlyLimitUSD         decimal.Decimal `json:"monthly_limit_usd" db:"monthly_limit_usd" validate:"gte=0"`
+	TotalVolumeThisMonthUSD decimal.Decimal `json:"total_volume_this_month_usd" db:"total_volume_this_month_usd" validate:"gte=0"`
+	VolumeLastResetAt       time.Time       `json:"volume_last_reset_at" db:"volume_last_reset_at"`
 
 	// API credentials
 	APIKey          sql.NullString `json:"api_key,omitempty" db:"api_key"`
@@ -110,4 +126,43 @@ func (m *Merchant) GetWebhookSecret() string {
 		return m.WebhookSecret.String
 	}
 	return ""
+}
+
+// IsWithinMonthlyLimit checks if the merchant can process additional amount without exceeding monthly limit
+func (m *Merchant) IsWithinMonthlyLimit(additionalAmountUSD decimal.Decimal) bool {
+	totalAfterTransaction := m.TotalVolumeThisMonthUSD.Add(additionalAmountUSD)
+	return totalAfterTransaction.LessThanOrEqual(m.MonthlyLimitUSD)
+}
+
+// GetRemainingLimit returns the remaining transaction limit for this month
+func (m *Merchant) GetRemainingLimit() decimal.Decimal {
+	remaining := m.MonthlyLimitUSD.Sub(m.TotalVolumeThisMonthUSD)
+	if remaining.IsNegative() {
+		return decimal.Zero
+	}
+	return remaining
+}
+
+// NeedsMonthlyReset checks if the monthly volume tracking needs to be reset
+func (m *Merchant) NeedsMonthlyReset() bool {
+	now := time.Now()
+	lastReset := m.VolumeLastResetAt
+
+	// Reset needed if we're in a different month than the last reset
+	return now.Year() > lastReset.Year() ||
+		(now.Year() == lastReset.Year() && now.Month() > lastReset.Month())
+}
+
+// GetTierLimitUSD returns the default monthly limit for a given tier
+func GetTierLimitUSD(tier KYCTier) decimal.Decimal {
+	switch tier {
+	case KYCTier1:
+		return decimal.NewFromInt(5000) // $5,000/month
+	case KYCTier2:
+		return decimal.NewFromInt(50000) // $50,000/month
+	case KYCTier3:
+		return decimal.NewFromInt(500000) // $500,000/month
+	default:
+		return decimal.NewFromInt(5000) // Default to Tier 1
+	}
 }
