@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	solanasdk "github.com/gagliardetto/solana-go"
-	"github.com/shopspring/decimal"
-	"github.com/sirupsen/logrus"
+	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/bsc"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
@@ -20,6 +20,8 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/service"
+	"github.com/shopspring/decimal"
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -120,7 +122,7 @@ func main() {
 	}
 
 	appLogger.WithFields(logrus.Fields{
-		"wallet_address": solanaListener.GetWalletAddress(),
+		"wallet_address":   solanaListener.GetWalletAddress(),
 		"supported_tokens": len(supportedTokenMints),
 	}).Info("Solana transaction listener configured")
 
@@ -131,13 +133,70 @@ func main() {
 
 	appLogger.Info("Solana transaction listener started successfully")
 
-	// TODO: Start BSC blockchain listener when BSC support is added
+	// Initialize and start BSC blockchain listener (if configured)
+	var bscListener *bsc.TransactionListener
+	if cfg.BSC.WalletPrivateKey != "" && cfg.BSC.RPCURL != "" {
+		appLogger.Info("Initializing BSC blockchain listener...")
+
+		// Initialize BSC wallet
+		bscWallet, err := bsc.LoadWallet(cfg.BSC.WalletPrivateKey, cfg.BSC.RPCURL)
+		if err != nil {
+			appLogger.WithError(err).Fatal("Failed to load BSC wallet")
+		}
+
+		appLogger.WithField("wallet_address", bscWallet.GetAddress()).Info("BSC wallet loaded")
+
+		// Verify BSC wallet health
+		if err := bscWallet.HealthCheck(ctx); err != nil {
+			appLogger.WithError(err).Fatal("BSC wallet health check failed")
+		}
+
+		appLogger.Info("BSC wallet health check passed")
+
+		// Configure supported token contracts for BSC
+		supportedBSCTokens := createSupportedBSCTokenContracts(cfg, appLogger)
+
+		// Create BSC Client for listener
+		bscClient, err := bsc.NewClientWithURL(cfg.BSC.RPCURL)
+		if err != nil {
+			appLogger.WithError(err).Fatal("Failed to create BSC client for listener")
+		}
+
+		// Initialize BSC blockchain listener
+		bscListener, err = bsc.NewTransactionListener(bsc.ListenerConfig{
+			Client:                  bscClient,
+			Wallet:                  bscWallet,
+			ConfirmationCallback:    confirmationCallback,
+			SupportedTokenContracts: supportedBSCTokens,
+			PollInterval:            10 * time.Second,
+			RequiredConfirmations:   15, // BSC finality
+			MaxRetries:              3,
+		})
+		if err != nil {
+			appLogger.WithError(err).Fatal("Failed to create BSC transaction listener")
+		}
+
+		appLogger.WithFields(logrus.Fields{
+			"wallet_address":    bscListener.GetWalletAddress(),
+			"supported_tokens":  len(supportedBSCTokens),
+			"required_confirms": 15,
+		}).Info("BSC transaction listener configured")
+
+		// Start the BSC listener
+		if err := bscListener.Start(); err != nil {
+			appLogger.WithError(err).Fatal("Failed to start BSC transaction listener")
+		}
+
+		appLogger.Info("BSC transaction listener started successfully")
+	} else {
+		appLogger.Info("BSC configuration not found, skipping BSC listener initialization")
+	}
 
 	// Start wallet balance monitor
 	monitorConfig := solana.WalletMonitorConfig{
 		CheckInterval:   5 * time.Minute,
-		MinThresholdUSD: decimal.NewFromInt(1000),  // $1,000 minimum
-		MaxThresholdUSD: decimal.NewFromInt(10000), // $10,000 maximum
+		MinThresholdUSD: decimal.NewFromInt(1000),      // $1,000 minimum
+		MaxThresholdUSD: decimal.NewFromInt(10000),     // $10,000 maximum
 		AlertEmails:     []string{cfg.Email.FromEmail}, // TODO: Configure ops team emails
 		Network:         getNetworkFromString(cfg.Solana.Network),
 	}
@@ -166,6 +225,13 @@ func main() {
 	// Stop Solana listener
 	if err := solanaListener.Stop(); err != nil {
 		appLogger.WithError(err).Error("Error stopping Solana listener")
+	}
+
+	// Stop BSC listener if running
+	if bscListener != nil {
+		if err := bscListener.Stop(); err != nil {
+			appLogger.WithError(err).Error("Error stopping BSC listener")
+		}
 	}
 
 	// Stop wallet monitor
@@ -280,7 +346,7 @@ func createPaymentConfirmationCallback(
 			PaymentID:     paymentID,
 			TxHash:        txHash,
 			ActualAmount:  amount,
-			Confirmations: 1, // Solana finalized = sufficient
+			Confirmations: 1,  // Solana finalized = sufficient
 			FromAddress:   "", // Will be extracted from transaction
 		}
 
@@ -409,6 +475,51 @@ func createSupportedTokenMints(cfg *config.Config, appLogger *logrus.Logger) map
 
 	if len(supportedTokens) == 0 {
 		appLogger.Warn("No supported token mints configured - listener will not process any payments")
+	}
+
+	return supportedTokens
+}
+
+// createSupportedBSCTokenContracts creates a map of supported BEP20 token contracts from config
+func createSupportedBSCTokenContracts(cfg *config.Config, appLogger *logrus.Logger) map[string]bsc.TokenContractInfo {
+	supportedTokens := make(map[string]bsc.TokenContractInfo)
+
+	// Add USDT if configured
+	if cfg.BSC.USDTContract != "" {
+		if !common.IsHexAddress(cfg.BSC.USDTContract) {
+			appLogger.WithFields(logrus.Fields{
+				"contract": cfg.BSC.USDTContract,
+			}).Warn("Invalid USDT contract address, skipping")
+		} else {
+			usdtContract := common.HexToAddress(cfg.BSC.USDTContract)
+			supportedTokens["USDT"] = bsc.TokenContractInfo{
+				ContractAddress: usdtContract,
+				Symbol:          "USDT",
+				Decimals:        18, // USDT uses 18 decimals on BSC
+			}
+			appLogger.WithField("contract", cfg.BSC.USDTContract).Info("BSC USDT support configured")
+		}
+	}
+
+	// Add BUSD if configured
+	if cfg.BSC.BUSDContract != "" {
+		if !common.IsHexAddress(cfg.BSC.BUSDContract) {
+			appLogger.WithFields(logrus.Fields{
+				"contract": cfg.BSC.BUSDContract,
+			}).Warn("Invalid BUSD contract address, skipping")
+		} else {
+			busdContract := common.HexToAddress(cfg.BSC.BUSDContract)
+			supportedTokens["BUSD"] = bsc.TokenContractInfo{
+				ContractAddress: busdContract,
+				Symbol:          "BUSD",
+				Decimals:        18, // BUSD uses 18 decimals on BSC
+			}
+			appLogger.WithField("contract", cfg.BSC.BUSDContract).Info("BSC BUSD support configured")
+		}
+	}
+
+	if len(supportedTokens) == 0 {
+		appLogger.Warn("No supported BSC token contracts configured - BSC listener will not process any payments")
 	}
 
 	return supportedTokens
