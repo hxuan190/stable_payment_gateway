@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -22,7 +23,21 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/service"
+	"github.com/sirupsen/logrus"
 )
+
+// kycStorageAdapter adapts storage.StorageService to handler.StorageService
+type kycStorageAdapter struct {
+	storage storage.StorageService
+}
+
+func (a *kycStorageAdapter) UploadKYCDocument(ctx context.Context, merchantID string, docType string, filename string, content []byte) (string, error) {
+	return a.storage.UploadKYCDocument(ctx, merchantID, docType, filename, bytes.NewReader(content), "application/octet-stream")
+}
+
+func (a *kycStorageAdapter) DeleteFile(ctx context.Context, fileURL string) error {
+	return a.storage.DeleteKYCDocument(ctx, fileURL)
+}
 
 // AdminServer represents the admin HTTP server
 type AdminServer struct {
@@ -174,32 +189,41 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 		logrus.New(), // Use logrus logger
 	)
 
-	// Initialize services with logrus logger
+	// Initialize services with correct parameters
 	svcLogger := logrus.New()
-	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, auditRepo, svcLogger)
-	notificationService := service.NewNotificationService(
-		s.config.Email.FromEmail,
-		s.config.Email.SMTPHost,
-		s.config.Email.SMTPPort,
-		s.config.Email.SMTPUsername,
-		s.config.Email.SMTPPassword,
-		svcLogger,
-	)
-	merchantService := service.NewMerchantService(merchantRepo, balanceRepo, auditRepo, svcLogger)
-	complianceService := service.NewComplianceService(
+	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, s.db)
+	notificationService := service.NewNotificationService(service.NotificationServiceConfig{
+		Logger:      svcLogger,
+		HTTPTimeout: 30 * time.Second,
+		EmailSender: s.config.Email.FromEmail,
+		// Note: EmailAPIKey would be used for service like SendGrid/Mailgun
+		// For SMTP, we'd need to extend the config or use a different approach
+	})
+	merchantService := service.NewMerchantService(merchantRepo, balanceRepo, s.db)
+
+	// Initialize AML service first (required by compliance service)
+	amlService := service.NewAMLService(
 		trmClient,
+		auditRepo,
+		paymentRepo,
+		repoLogger,
+	)
+
+	complianceService := service.NewComplianceService(
+		amlService,
+		merchantRepo,
 		travelRuleRepo,
 		kycDocumentRepo,
-		merchantRepo,
-		svcLogger,
+		paymentRepo,
+		auditRepo,
+		repoLogger,
 	)
 	payoutService := service.NewPayoutService(
 		payoutRepo,
+		merchantRepo,
 		balanceRepo,
 		ledgerService,
-		notificationService,
-		auditRepo,
-		svcLogger,
+		s.db,
 	)
 
 	// Health check handler (no auth required)
@@ -208,9 +232,9 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 		s.cache,
 		s.solanaClient,
 		s.solanaWallet,
+		"admin-v1.0.0", // Version string
 	)
 	router.GET("/health", healthHandler.Health)
-	router.GET("/ready", healthHandler.Ready)
 
 	// Admin API v1 routes
 	adminV1 := router.Group("/api/admin/v1")
@@ -229,6 +253,7 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 		protected.Use(middleware.JWTAuth(s.jwtManager))
 		{
 			// Initialize admin handler
+			// Note: Passing nil for wallet - admin operations don't need wallet balance
 			adminHandler := handler.NewAdminHandler(
 				merchantService,
 				payoutService,
@@ -239,11 +264,12 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 				balanceRepo,
 				travelRuleRepo,
 				kycDocumentRepo,
-				s.solanaWallet,
+				nil, // WalletBalanceGetter - optional for admin operations
 			)
 
-			// Initialize KYC handler
-			kycHandler := handler.NewKYCHandler(storageService, kycDocumentRepo)
+			// Create storage adapter for KYC handler
+			storageAdapter := &kycStorageAdapter{storage: storageService}
+			kycHandler := handler.NewKYCHandler(storageAdapter, kycDocumentRepo)
 
 			// Merchant management routes
 			merchants := protected.Group("/merchants")
