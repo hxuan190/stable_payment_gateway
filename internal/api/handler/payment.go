@@ -25,19 +25,39 @@ type PaymentService interface {
 	ListPaymentsByMerchant(ctx context.Context, merchantID string, limit, offset int) ([]*model.Payment, error)
 }
 
+// ComplianceService defines the interface for compliance-related operations
+type ComplianceService interface {
+	ValidatePaymentCompliance(ctx context.Context, payment *model.Payment, travelRuleData *model.TravelRuleData, fromAddress string) error
+	StoreTravelRuleData(ctx context.Context, data *model.TravelRuleData) error
+}
+
+// ExchangeRateService defines the interface for exchange rate operations
+type ExchangeRateService interface {
+	GetExchangeRate(ctx context.Context, currency string) (decimal.Decimal, error)
+}
+
 // PaymentHandler handles HTTP requests for payment operations
 type PaymentHandler struct {
-	paymentService PaymentService
-	qrGenerator    *qrcode.Generator
-	baseURL        string // Base URL for payment pages (e.g., https://pay.example.com)
+	paymentService      PaymentService
+	complianceService   ComplianceService
+	exchangeRateService ExchangeRateService
+	qrGenerator         *qrcode.Generator
+	baseURL             string // Base URL for payment pages (e.g., https://pay.example.com)
 }
 
 // NewPaymentHandler creates a new payment handler
-func NewPaymentHandler(paymentService PaymentService, baseURL string) *PaymentHandler {
+func NewPaymentHandler(
+	paymentService PaymentService,
+	complianceService ComplianceService,
+	exchangeRateService ExchangeRateService,
+	baseURL string,
+) *PaymentHandler {
 	return &PaymentHandler{
-		paymentService: paymentService,
-		qrGenerator:    qrcode.NewGenerator(),
-		baseURL:        baseURL,
+		paymentService:      paymentService,
+		complianceService:   complianceService,
+		exchangeRateService: exchangeRateService,
+		qrGenerator:         qrcode.NewGenerator(),
+		baseURL:             baseURL,
 	}
 }
 
@@ -115,6 +135,62 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 		statusCode, errCode, errMessage := h.mapServiceError(err)
 		c.JSON(statusCode, dto.ErrorResponse(errCode, errMessage))
 		return
+	}
+
+	// Check if Travel Rule data is required (transactions > $1000 USD)
+	// Convert VND to USD using payment's exchange rate
+	travelRuleThreshold := decimal.NewFromInt(1000)
+	if payment.AmountUSD.GreaterThan(travelRuleThreshold) {
+		if req.TravelRule == nil {
+			logger.WithContext(ctx).WithFields(logrus.Fields{
+				"payment_id": payment.ID,
+				"amount_usd": payment.AmountUSD.String(),
+			}).Warn("Travel Rule data required but not provided")
+
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+				"TRAVEL_RULE_REQUIRED",
+				fmt.Sprintf("Travel Rule data is required for transactions exceeding $%.2f USD", travelRuleThreshold),
+			))
+			return
+		}
+
+		// Convert DTO to model and store Travel Rule data
+		travelRuleData := &model.TravelRuleData{
+			PaymentID:           payment.ID,
+			PayerFullName:       req.TravelRule.PayerFullName,
+			PayerWalletAddress:  req.TravelRule.PayerWalletAddress,
+			PayerCountry:        req.TravelRule.PayerCountry,
+			MerchantFullName:    merchant.BusinessName,
+			MerchantCountry:     "VN", // Default to Vietnam for now
+			TransactionAmount:   payment.AmountUSD,
+			TransactionCurrency: "USD",
+		}
+
+		// Set optional PayerIDDocument if provided
+		if req.TravelRule.PayerIDDocument != "" {
+			travelRuleData.PayerIDDocument.String = req.TravelRule.PayerIDDocument
+			travelRuleData.PayerIDDocument.Valid = true
+		}
+
+		// Store Travel Rule data
+		err = h.complianceService.StoreTravelRuleData(ctx, travelRuleData)
+		if err != nil {
+			logger.WithContext(ctx).WithFields(logrus.Fields{
+				"error":      err.Error(),
+				"payment_id": payment.ID,
+			}).Error("Failed to store Travel Rule data")
+
+			c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
+				"TRAVEL_RULE_ERROR",
+				"Failed to store Travel Rule data",
+			))
+			return
+		}
+
+		logger.WithContext(ctx).WithFields(logrus.Fields{
+			"payment_id":    payment.ID,
+			"payer_country": req.TravelRule.PayerCountry,
+		}).Info("Travel Rule data stored successfully")
 	}
 
 	// Generate QR code

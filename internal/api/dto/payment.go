@@ -10,12 +10,21 @@ import (
 
 // CreatePaymentRequest represents the request to create a new payment
 type CreatePaymentRequest struct {
-	AmountVND   float64 `json:"amount_vnd" binding:"required,gt=0" validate:"required,gt=0"`
-	Currency    string  `json:"currency,omitempty" validate:"omitempty,oneof=USDT USDC BUSD"`
-	Chain       string  `json:"chain,omitempty" validate:"omitempty,oneof=solana bsc"`
-	OrderID     string  `json:"order_id,omitempty" validate:"omitempty,max=255"`
-	Description string  `json:"description,omitempty" validate:"omitempty,max=1000"`
-	CallbackURL string  `json:"callback_url,omitempty" validate:"omitempty,url,max=500"`
+	AmountVND   float64            `json:"amount_vnd" binding:"required,gt=0" validate:"required,gt=0"`
+	Currency    string             `json:"currency,omitempty" validate:"omitempty,oneof=USDT USDC BUSD"`
+	Chain       string             `json:"chain,omitempty" validate:"omitempty,oneof=solana bsc"`
+	OrderID     string             `json:"order_id,omitempty" validate:"omitempty,max=255"`
+	Description string             `json:"description,omitempty" validate:"omitempty,max=1000"`
+	CallbackURL string             `json:"callback_url,omitempty" validate:"omitempty,url,max=500"`
+	TravelRule  *TravelRuleRequest `json:"travel_rule,omitempty"` // Required for transactions > $1000 USD
+}
+
+// TravelRuleRequest represents Travel Rule data for high-value transactions (> $1000 USD)
+type TravelRuleRequest struct {
+	PayerFullName      string `json:"payer_full_name" validate:"required,max=255"`
+	PayerWalletAddress string `json:"payer_wallet_address" validate:"required,max=255"`
+	PayerCountry       string `json:"payer_country" validate:"required,len=2"` // ISO 3166-1 alpha-2
+	PayerIDDocument    string `json:"payer_id_document,omitempty" validate:"omitempty,max=255"`
 }
 
 // CreatePaymentResponse represents the response when a payment is created

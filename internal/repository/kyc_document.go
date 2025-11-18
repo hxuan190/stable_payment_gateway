@@ -25,15 +25,17 @@ var (
 // KYCDocumentRepository defines the interface for KYC document data access
 type KYCDocumentRepository interface {
 	Create(ctx context.Context, document *model.KYCDocument) error
-	GetByID(ctx context.Context, id string) (*model.KYCDocument, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*model.KYCDocument, error)
 	GetByMerchantID(ctx context.Context, merchantID string) ([]*model.KYCDocument, error)
 	List(ctx context.Context, filter KYCDocumentFilter) ([]*model.KYCDocument, error)
+	ListByStatus(ctx context.Context, status model.KYCDocumentStatus) ([]*model.KYCDocument, error)
 	Update(ctx context.Context, document *model.KYCDocument) error
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, id uuid.UUID) error
 	Approve(ctx context.Context, id string, reviewerID string, notes string) error
 	Reject(ctx context.Context, id string, reviewerID string, notes string) error
 	GetPendingDocuments(ctx context.Context, limit int) ([]*model.KYCDocument, error)
 	CountByMerchantAndStatus(ctx context.Context, merchantID string, status model.KYCDocumentStatus) (int64, error)
+	HasApprovedDocumentOfType(ctx context.Context, merchantID string, docType model.KYCDocumentType) (bool, error)
 }
 
 // KYCDocumentFilter represents filters for querying KYC documents
@@ -84,7 +86,7 @@ func (r *kycDocumentRepositoryImpl) Create(ctx context.Context, document *model.
 }
 
 // GetByID retrieves a KYC document by ID
-func (r *kycDocumentRepositoryImpl) GetByID(ctx context.Context, id string) (*model.KYCDocument, error) {
+func (r *kycDocumentRepositoryImpl) GetByID(ctx context.Context, id uuid.UUID) (*model.KYCDocument, error) {
 	var document model.KYCDocument
 	result := r.db.WithContext(ctx).Where("id = ?", id).First(&document)
 
@@ -96,6 +98,21 @@ func (r *kycDocumentRepositoryImpl) GetByID(ctx context.Context, id string) (*mo
 	}
 
 	return &document, nil
+}
+
+// ListByStatus retrieves all KYC documents with a specific status
+func (r *kycDocumentRepositoryImpl) ListByStatus(ctx context.Context, status model.KYCDocumentStatus) ([]*model.KYCDocument, error) {
+	var documents []*model.KYCDocument
+	result := r.db.WithContext(ctx).
+		Where("status = ?", status).
+		Order("created_at ASC").
+		Find(&documents)
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to list documents by status: %w", result.Error)
+	}
+
+	return documents, nil
 }
 
 // GetByMerchantID retrieves all KYC documents for a merchant
@@ -172,7 +189,7 @@ func (r *kycDocumentRepositoryImpl) Update(ctx context.Context, document *model.
 }
 
 // Delete deletes a KYC document by ID
-func (r *kycDocumentRepositoryImpl) Delete(ctx context.Context, id string) error {
+func (r *kycDocumentRepositoryImpl) Delete(ctx context.Context, id uuid.UUID) error {
 	result := r.db.WithContext(ctx).Delete(&model.KYCDocument{}, "id = ?", id)
 
 	if result.Error != nil {
