@@ -197,3 +197,78 @@ func PaymentToListItem(payment *model.Payment) PaymentListItem {
 
 	return item
 }
+
+// PaymentStatusResponse represents the public payment status response (no authentication required)
+// This DTO is designed for the payer experience layer and excludes merchant-sensitive information
+type PaymentStatusResponse struct {
+	ID                string          `json:"id"`
+	Status            string          `json:"status"`
+	AmountCrypto      decimal.Decimal `json:"amount_crypto"`
+	AmountVND         decimal.Decimal `json:"amount_vnd"`
+	Currency          string          `json:"currency"`
+	Chain             string          `json:"chain"`
+	WalletAddress     string          `json:"wallet_address"`
+	PaymentMemo       string          `json:"payment_memo"`
+	QRCodeData        string          `json:"qr_code_data"`
+	TxHash            *string         `json:"tx_hash,omitempty"`
+	Confirmations     int             `json:"confirmations"`
+	ExpiresAt         time.Time       `json:"expires_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+	CompletedAt       *time.Time      `json:"completed_at,omitempty"`
+}
+
+// PaymentToPublicStatusResponse converts a model.Payment to PaymentStatusResponse (public-safe)
+func PaymentToPublicStatusResponse(payment *model.Payment) PaymentStatusResponse {
+	response := PaymentStatusResponse{
+		ID:            payment.ID,
+		Status:        string(payment.Status),
+		AmountCrypto:  payment.AmountCrypto,
+		AmountVND:     payment.AmountVND,
+		Currency:      payment.Currency,
+		Chain:         string(payment.Chain),
+		WalletAddress: payment.DestinationWallet,
+		PaymentMemo:   payment.PaymentReference,
+		QRCodeData:    formatQRCodeData(payment),
+		Confirmations: 0, // Default to 0, will be updated based on tx status
+		ExpiresAt:     payment.ExpiresAt,
+		CreatedAt:     payment.CreatedAt,
+	}
+
+	// Handle optional fields
+	if payment.TxHash.Valid {
+		txHash := payment.TxHash.String
+		response.TxHash = &txHash
+	}
+	if payment.ConfirmedAt.Valid {
+		confirmedAt := payment.ConfirmedAt.Time
+		response.CompletedAt = &confirmedAt
+	}
+
+	// Set confirmations based on status
+	if payment.Status == model.PaymentStatusCompleted {
+		response.Confirmations = 100 // Fully confirmed
+	} else if payment.Status == model.PaymentStatusConfirming {
+		response.Confirmations = 50 // Partially confirmed
+	} else if payment.Status == model.PaymentStatusPending {
+		response.Confirmations = 1 // Transaction detected
+	}
+
+	return response
+}
+
+// formatQRCodeData formats the payment data for QR code generation
+// Returns a formatted string that can be used to generate QR codes for different chains
+func formatQRCodeData(payment *model.Payment) string {
+	switch payment.Chain {
+	case model.ChainSolana:
+		// Solana Pay format: solana:{address}?amount={amount}&spl-token={mint}&reference={memo}&label={label}
+		// For now, return simplified format
+		return "solana:" + payment.DestinationWallet + "?amount=" + payment.AmountCrypto.String() + "&reference=" + payment.PaymentReference
+	case model.ChainBSC:
+		// Ethereum/BSC format
+		return "ethereum:" + payment.DestinationWallet + "?value=" + payment.AmountCrypto.String()
+	default:
+		// Fallback: just return the wallet address
+		return payment.DestinationWallet
+	}
+}

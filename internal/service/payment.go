@@ -5,11 +5,13 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 
@@ -71,6 +73,7 @@ type PaymentService struct {
 	paymentRepo         PaymentRepository
 	merchantRepo        MerchantRepository
 	exchangeRateService ExchangeRateProvider
+	redisClient         *redis.Client // For publishing real-time events
 	logger              *logrus.Logger
 	defaultChain        model.Chain
 	defaultCurrency     string
@@ -86,6 +89,7 @@ type PaymentServiceConfig struct {
 	WalletAddress   string
 	FeePercentage   float64
 	ExpiryMinutes   int
+	RedisClient     *redis.Client // Optional: for real-time events
 }
 
 // NewPaymentService creates a new payment service
@@ -120,6 +124,7 @@ func NewPaymentService(
 		paymentRepo:         paymentRepo,
 		merchantRepo:        merchantRepo,
 		exchangeRateService: exchangeRateService,
+		redisClient:         config.RedisClient,
 		logger:              logger,
 		defaultChain:        defaultChain,
 		defaultCurrency:     defaultCurrency,
@@ -386,6 +391,23 @@ func (s *PaymentService) ConfirmPayment(ctx context.Context, req ConfirmPaymentR
 		"tx_hash":    req.TxHash,
 	}).Info("Payment confirmed successfully")
 
+	// Publish real-time event to Redis for WebSocket clients
+	eventType := "payment.confirming"
+	eventMessage := "Payment is being confirmed"
+	if payment.Status == model.PaymentStatusCompleted {
+		eventType = "payment.completed"
+		eventMessage = "Payment completed successfully"
+	}
+
+	s.publishPaymentEvent(ctx, PaymentEvent{
+		Type:      eventType,
+		PaymentID: payment.ID,
+		Status:    string(payment.Status),
+		TxHash:    req.TxHash,
+		Timestamp: time.Now(),
+		Message:   eventMessage,
+	})
+
 	// TODO: In a complete implementation, this should:
 	// 1. Create ledger entries (handled by ledger service)
 	// 2. Update merchant balance (handled by balance service)
@@ -424,6 +446,15 @@ func (s *PaymentService) ExpirePayment(ctx context.Context, paymentID string) er
 
 	s.logger.WithField("payment_id", paymentID).Info("Payment expired successfully")
 
+	// Publish real-time event to Redis for WebSocket clients
+	s.publishPaymentEvent(ctx, PaymentEvent{
+		Type:      "payment.expired",
+		PaymentID: paymentID,
+		Status:    string(model.PaymentStatusExpired),
+		Timestamp: time.Now(),
+		Message:   "Payment has expired",
+	})
+
 	return nil
 }
 
@@ -460,6 +491,15 @@ func (s *PaymentService) FailPayment(ctx context.Context, paymentID, reason stri
 		"payment_id": paymentID,
 		"reason":     reason,
 	}).Info("Payment marked as failed")
+
+	// Publish real-time event to Redis for WebSocket clients
+	s.publishPaymentEvent(ctx, PaymentEvent{
+		Type:      "payment.failed",
+		PaymentID: paymentID,
+		Status:    string(model.PaymentStatusFailed),
+		Timestamp: time.Now(),
+		Message:   reason,
+	})
 
 	return nil
 }
@@ -531,4 +571,50 @@ func (s *PaymentService) generatePaymentReference() (string, error) {
 	}
 
 	return hex.EncodeToString(bytes), nil
+}
+
+// PaymentEvent represents a payment status update event for real-time broadcasting
+type PaymentEvent struct {
+	Type      string    `json:"type"`      // payment.pending, payment.confirming, payment.completed, payment.expired, payment.failed
+	PaymentID string    `json:"payment_id"`
+	Status    string    `json:"status"`
+	TxHash    string    `json:"tx_hash,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+	Message   string    `json:"message,omitempty"`
+}
+
+// publishPaymentEvent publishes a payment event to Redis for real-time WebSocket broadcasting
+func (s *PaymentService) publishPaymentEvent(ctx context.Context, event PaymentEvent) {
+	// Skip if Redis client is not configured
+	if s.redisClient == nil {
+		return
+	}
+
+	// Marshal event to JSON
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		s.logger.WithFields(logrus.Fields{
+			"error":      err.Error(),
+			"payment_id": event.PaymentID,
+			"event_type": event.Type,
+		}).Error("Failed to marshal payment event")
+		return
+	}
+
+	// Publish to Redis channel
+	channelName := fmt.Sprintf("payment_events:%s", event.PaymentID)
+	if err := s.redisClient.Publish(ctx, channelName, eventJSON).Err(); err != nil {
+		s.logger.WithFields(logrus.Fields{
+			"error":      err.Error(),
+			"payment_id": event.PaymentID,
+			"channel":    channelName,
+		}).Error("Failed to publish payment event to Redis")
+		return
+	}
+
+	s.logger.WithFields(logrus.Fields{
+		"payment_id": event.PaymentID,
+		"event_type": event.Type,
+		"channel":    channelName,
+	}).Debug("Published payment event to Redis")
 }

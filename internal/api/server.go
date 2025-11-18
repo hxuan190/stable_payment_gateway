@@ -9,8 +9,11 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
+	"github.com/hxuan190/stable_payment_gateway/internal/api/websocket"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
@@ -169,7 +172,8 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	if baseURL == "" {
 		baseURL = fmt.Sprintf("http://%s:%d", s.config.API.Host, s.config.API.Port)
 	}
-	paymentHandler := handler.NewPaymentHandler(paymentService, baseURL)
+	// TODO: Initialize ComplianceService properly when compliance features are implemented
+	paymentHandler := handler.NewPaymentHandler(paymentService, nil, exchangeRateService, baseURL)
 	payoutHandler := handler.NewPayoutHandler(payoutService)
 	adminHandler := handler.NewAdminHandler(
 		merchantService,
@@ -187,8 +191,14 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
-		// Public endpoints
+		// Public endpoints (no authentication required)
 		v1.GET("/status", healthHandler.Status)
+
+		// Public payment status endpoint (Payer Experience Layer)
+		publicGroup := v1.Group("/public")
+		{
+			publicGroup.GET("/payments/:id/status", paymentHandler.GetPublicPaymentStatus)
+		}
 
 		// Payment routes (API key authentication required)
 		paymentGroup := v1.Group("/payments")
@@ -217,9 +227,16 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 			merchantGroup.GET("/payouts", payoutHandler.ListPayouts)
 			merchantGroup.GET("/payouts/:id", payoutHandler.GetPayout)
 		}
+	}
 
-		// TODO: Public payment page (no auth, read-only)
-		// v1.GET("/pay/:id", paymentHandler.GetPublicPayment)
+	// WebSocket routes (real-time payment status updates)
+	// Initialize WebSocket handler
+	redisCache, ok := s.cache.(*cache.RedisCache)
+	if ok {
+		wsHandler := websocket.NewPaymentWSHandler(redisCache.GetClient())
+		router.GET("/ws/payments/:id", wsHandler.HandlePaymentStatus)
+	} else {
+		logger.Warn("WebSocket disabled: Redis cache not available")
 	}
 
 	// Admin routes (JWT authentication required)
@@ -346,6 +363,12 @@ func (s *Server) initPaymentService(
 	merchantRepo *repository.MerchantRepository,
 	exchangeRateService *service.ExchangeRateService,
 ) *service.PaymentService {
+	// Get Redis client if available
+	var redisClient *redis.Client
+	if redisCache, ok := s.cache.(*cache.RedisCache); ok {
+		redisClient = redisCache.GetClient()
+	}
+
 	return service.NewPaymentService(
 		paymentRepo,
 		merchantRepo,
@@ -356,6 +379,7 @@ func (s *Server) initPaymentService(
 			WalletAddress:   s.solanaWallet.GetAddress(),
 			FeePercentage:   0.01, // 1% fee
 			ExpiryMinutes:   30,   // 30 minutes expiry
+			RedisClient:     redisClient,
 		},
 		logger.GetLogger(),
 	)
