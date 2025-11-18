@@ -109,7 +109,7 @@ func main() {
 	solanaListener, err := solana.NewTransactionListener(solana.ListenerConfig{
 		Client:               solanaClient,
 		Wallet:               solanaWallet,
-		WSURL:                "", // Will be derived from RPC URL
+		WSURL:                cfg.Solana.WSURL, // Use configured WebSocket URL (auto-derives from RPC if empty)
 		ConfirmationCallback: confirmationCallback,
 		SupportedTokenMints:  supportedTokenMints,
 		PollInterval:         10 * time.Second,

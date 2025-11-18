@@ -71,6 +71,7 @@ type RedisConfig struct {
 // SolanaConfig contains Solana blockchain configuration
 type SolanaConfig struct {
 	RPCURL             string
+	WSURL              string // WebSocket URL for real-time transaction monitoring
 	WalletPrivateKey   string
 	WalletAddress      string
 	Network            string // mainnet, testnet, devnet
@@ -199,6 +200,7 @@ func Load() (*Config, error) {
 		},
 		Solana: SolanaConfig{
 			RPCURL:            getEnv("SOLANA_RPC_URL", "https://api.devnet.solana.com"),
+			WSURL:             getEnv("SOLANA_WS_URL", ""), // Empty string triggers auto-derivation from RPC URL
 			WalletPrivateKey:  getEnv("SOLANA_WALLET_PRIVATE_KEY", ""),
 			WalletAddress:     getEnv("SOLANA_WALLET_ADDRESS", ""),
 			Network:           getEnv("SOLANA_NETWORK", "devnet"),
