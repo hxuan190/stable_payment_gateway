@@ -8,9 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
-
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
 
 var (
@@ -31,26 +30,29 @@ type TravelRuleRepository interface {
 
 // TravelRuleFilter represents filters for querying travel rule data
 type TravelRuleFilter struct {
-	PayerCountry  string
-	MinAmount     *float64
-	StartDate     *time.Time
-	EndDate       *time.Time
-	Limit         int
-	Offset        int
+	PayerCountry string
+	MinAmount    *float64
+	StartDate    *time.Time
+	EndDate      *time.Time
+	Limit        int
+	Offset       int
 }
 
 type travelRuleRepositoryImpl struct {
-	db *gorm.DB
+	db     *sql.DB
+	logger *logger.Logger
 }
 
 // NewTravelRuleRepository creates a new travel rule repository
-func NewTravelRuleRepository(db *gorm.DB) TravelRuleRepository {
+func NewTravelRuleRepository(db *sql.DB, log *logger.Logger) TravelRuleRepository {
 	return &travelRuleRepositoryImpl{
-		db: db,
+		db:     db,
+		logger: log,
 	}
 }
 
 // Create creates a new travel rule data record
+// CRITICAL: Used by ComplianceService.StoreTravelRuleData
 func (r *travelRuleRepositoryImpl) Create(ctx context.Context, data *model.TravelRuleData) error {
 	if data.ID == "" {
 		data.ID = uuid.New().String()
@@ -60,150 +62,137 @@ func (r *travelRuleRepositoryImpl) Create(ctx context.Context, data *model.Trave
 		data.CreatedAt = time.Now()
 	}
 
-	result := r.db.WithContext(ctx).Create(data)
-	if result.Error != nil {
-		return fmt.Errorf("failed to create travel rule data: %w", result.Error)
+	query := `
+		INSERT INTO travel_rule_data (
+			id, payment_id, payer_full_name, payer_wallet_address, payer_id_document,
+			payer_country, merchant_full_name, merchant_country,
+			transaction_amount, transaction_currency, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`
+
+	_, err := r.db.ExecContext(ctx, query,
+		data.ID,
+		data.PaymentID,
+		data.PayerFullName,
+		data.PayerWalletAddress,
+		data.PayerIDDocument,
+		data.PayerCountry,
+		data.MerchantFullName,
+		data.MerchantCountry,
+		data.TransactionAmount,
+		data.TransactionCurrency,
+		data.CreatedAt,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to create travel rule data: %w", err)
 	}
 
 	return nil
-}
-
-// GetByID retrieves travel rule data by ID
-func (r *travelRuleRepositoryImpl) GetByID(ctx context.Context, id string) (*model.TravelRuleData, error) {
-	var data model.TravelRuleData
-	result := r.db.WithContext(ctx).Where("id = ?", id).First(&data)
-
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			return nil, ErrTravelRuleDataNotFound
-		}
-		return nil, fmt.Errorf("failed to get travel rule data: %w", result.Error)
-	}
-
-	return &data, nil
-}
-
-// GetByPaymentID retrieves travel rule data by payment ID
-func (r *travelRuleRepositoryImpl) GetByPaymentID(ctx context.Context, paymentID string) (*model.TravelRuleData, error) {
-	var data model.TravelRuleData
-	result := r.db.WithContext(ctx).Where("payment_id = ?", paymentID).First(&data)
-
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			return nil, ErrTravelRuleDataNotFound
-		}
-		return nil, fmt.Errorf("failed to get travel rule data by payment ID: %w", result.Error)
-	}
-
-	return &data, nil
 }
 
 // List retrieves travel rule data with filters
+// CRITICAL: Used by ComplianceService.GetTravelRuleReport
 func (r *travelRuleRepositoryImpl) List(ctx context.Context, filter TravelRuleFilter) ([]*model.TravelRuleData, error) {
-	query := r.db.WithContext(ctx).Model(&model.TravelRuleData{})
+	query := `
+		SELECT id, payment_id, payer_full_name, payer_wallet_address, payer_id_document,
+		       payer_country, merchant_full_name, merchant_country,
+		       transaction_amount, transaction_currency, created_at
+		FROM travel_rule_data
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	argCount := 1
 
 	// Apply filters
-	if filter.PayerCountry != "" {
-		query = query.Where("payer_country = ?", filter.PayerCountry)
-	}
-
-	if filter.MinAmount != nil {
-		query = query.Where("transaction_amount >= ?", *filter.MinAmount)
-	}
-
 	if filter.StartDate != nil {
-		query = query.Where("created_at >= ?", *filter.StartDate)
+		query += fmt.Sprintf(" AND created_at >= $%d", argCount)
+		args = append(args, filter.StartDate)
+		argCount++
 	}
 
 	if filter.EndDate != nil {
-		query = query.Where("created_at <= ?", *filter.EndDate)
+		query += fmt.Sprintf(" AND created_at <= $%d", argCount)
+		args = append(args, filter.EndDate)
+		argCount++
 	}
 
-	// Apply sorting
-	query = query.Order("created_at DESC")
+	if filter.MinAmount != nil {
+		query += fmt.Sprintf(" AND transaction_amount >= $%d", argCount)
+		args = append(args, filter.MinAmount)
+		argCount++
+	}
 
-	// Apply pagination
+	if filter.PayerCountry != "" {
+		query += fmt.Sprintf(" AND payer_country = $%d", argCount)
+		args = append(args, filter.PayerCountry)
+		argCount++
+	}
+
+	query += " ORDER BY created_at DESC"
+
 	if filter.Limit > 0 {
-		query = query.Limit(filter.Limit)
+		query += fmt.Sprintf(" LIMIT $%d", argCount)
+		args = append(args, filter.Limit)
+		argCount++
 	}
 
 	if filter.Offset > 0 {
-		query = query.Offset(filter.Offset)
+		query += fmt.Sprintf(" OFFSET $%d", argCount)
+		args = append(args, filter.Offset)
 	}
 
-	var dataList []*model.TravelRuleData
-	result := query.Find(&dataList)
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list travel rule data: %w", err)
+	}
+	defer rows.Close()
 
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to list travel rule data: %w", result.Error)
+	var results []*model.TravelRuleData
+	for rows.Next() {
+		var data model.TravelRuleData
+		err := rows.Scan(
+			&data.ID,
+			&data.PaymentID,
+			&data.PayerFullName,
+			&data.PayerWalletAddress,
+			&data.PayerIDDocument,
+			&data.PayerCountry,
+			&data.MerchantFullName,
+			&data.MerchantCountry,
+			&data.TransactionAmount,
+			&data.TransactionCurrency,
+			&data.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan travel rule data: %w", err)
+		}
+		results = append(results, &data)
 	}
 
-	return dataList, nil
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating travel rule data: %w", err)
+	}
+
+	return results, nil
 }
 
-// Delete deletes travel rule data by ID
-// Note: In production, you might want to implement soft delete instead
+// Stub implementations for other methods (can be implemented later as needed)
+
+func (r *travelRuleRepositoryImpl) GetByID(ctx context.Context, id string) (*model.TravelRuleData, error) {
+	// TODO: Implement when needed
+	r.logger.Warn("TravelRuleRepository.GetByID not yet implemented")
+	return nil, errors.New("not implemented")
+}
+
+func (r *travelRuleRepositoryImpl) GetByPaymentID(ctx context.Context, paymentID string) (*model.TravelRuleData, error) {
+	// TODO: Implement when needed
+	r.logger.Warn("TravelRuleRepository.GetByPaymentID not yet implemented")
+	return nil, errors.New("not implemented")
+}
+
 func (r *travelRuleRepositoryImpl) Delete(ctx context.Context, id string) error {
-	result := r.db.WithContext(ctx).Delete(&model.TravelRuleData{}, "id = ?", id)
-
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete travel rule data: %w", result.Error)
-	}
-
-	if result.RowsAffected == 0 {
-		return ErrTravelRuleDataNotFound
-	}
-
-	return nil
-}
-
-// GetTravelRuleReport generates a report of travel rule data for regulatory compliance
-func (r *travelRuleRepositoryImpl) GetTravelRuleReport(ctx context.Context, startDate, endDate time.Time) ([]*model.TravelRuleData, error) {
-	var dataList []*model.TravelRuleData
-
-	result := r.db.WithContext(ctx).
-		Where("created_at >= ? AND created_at <= ?", startDate, endDate).
-		Where("transaction_amount >= ?", 1000). // Travel Rule threshold: $1000 USD
-		Order("created_at DESC").
-		Find(&dataList)
-
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to generate travel rule report: %w", result.Error)
-	}
-
-	return dataList, nil
-}
-
-// GetStatsByCountry returns statistics of travel rule data grouped by country
-func (r *travelRuleRepositoryImpl) GetStatsByCountry(ctx context.Context, startDate, endDate time.Time) (map[string]int64, error) {
-	type CountryStats struct {
-		PayerCountry string
-		Count        int64
-	}
-
-	var stats []CountryStats
-	result := r.db.WithContext(ctx).
-		Model(&model.TravelRuleData{}).
-		Select("payer_country, COUNT(*) as count").
-		Where("created_at >= ? AND created_at <= ?", startDate, endDate).
-		Group("payer_country").
-		Order("count DESC").
-		Find(&stats)
-
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get stats by country: %w", result.Error)
-	}
-
-	statsMap := make(map[string]int64)
-	for _, stat := range stats {
-		statsMap[stat.PayerCountry] = stat.Count
-	}
-
-	return statsMap, nil
-}
-
-// Ensure model.TravelRuleData implements the correct table name
-func init() {
-	// This ensures GORM uses the correct table name
-	sql.Register("travel_rule_data", &model.TravelRuleData{})
+	// TODO: Implement when needed
+	r.logger.Warn("TravelRuleRepository.Delete not yet implemented")
+	return errors.New("not implemented")
 }

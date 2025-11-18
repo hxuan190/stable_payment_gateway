@@ -73,7 +73,8 @@ type PaymentService struct {
 	paymentRepo         PaymentRepository
 	merchantRepo        MerchantRepository
 	exchangeRateService ExchangeRateProvider
-	redisClient         *redis.Client // For publishing real-time events
+	complianceService   ComplianceService // For pre-payment validation
+	redisClient         *redis.Client     // For publishing real-time events
 	logger              *logrus.Logger
 	defaultChain        model.Chain
 	defaultCurrency     string
@@ -97,6 +98,7 @@ func NewPaymentService(
 	paymentRepo PaymentRepository,
 	merchantRepo MerchantRepository,
 	exchangeRateService ExchangeRateProvider,
+	complianceService ComplianceService, // Optional: for compliance checks
 	config PaymentServiceConfig,
 	logger *logrus.Logger,
 ) *PaymentService {
@@ -124,6 +126,7 @@ func NewPaymentService(
 		paymentRepo:         paymentRepo,
 		merchantRepo:        merchantRepo,
 		exchangeRateService: exchangeRateService,
+		complianceService:   complianceService,
 		redisClient:         config.RedisClient,
 		logger:              logger,
 		defaultChain:        defaultChain,
@@ -197,6 +200,30 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req CreatePaymentReq
 
 	// Calculate crypto amount (VND / exchange rate)
 	amountCrypto := req.AmountVND.Div(exchangeRate).Round(6) // Round to 6 decimals for USDT/USDC
+
+	// COMPLIANCE CHECK: Validate monthly limits BEFORE creating payment
+	if s.complianceService != nil {
+		// Calculate USD amount for compliance check
+		// Assuming 1 USD ≈ 23,000 VND (approximate, but compliance uses exact stablecoin value)
+		// For USDT/USDC, the crypto amount IS the USD amount
+		amountUSD := amountCrypto // USDT/USDC are 1:1 with USD
+
+		// Check if merchant would exceed monthly limit
+		err := s.complianceService.CheckMonthlyLimit(ctx, req.MerchantID, amountUSD)
+		if err != nil {
+			s.logger.WithFields(logrus.Fields{
+				"merchant_id": req.MerchantID,
+				"amount_usd":  amountUSD.String(),
+				"error":       err.Error(),
+			}).Warn("Payment rejected: monthly limit check failed")
+			return nil, fmt.Errorf("compliance check failed: %w", err)
+		}
+
+		s.logger.WithFields(logrus.Fields{
+			"merchant_id": req.MerchantID,
+			"amount_usd":  amountUSD.String(),
+		}).Info("Compliance check passed: monthly limit OK")
+	}
 
 	// Generate payment ID and reference
 	paymentID := uuid.New().String()
@@ -378,6 +405,45 @@ func (s *PaymentService) ConfirmPayment(ctx context.Context, req ConfirmPaymentR
 	if req.Confirmations >= 1 {
 		payment.Status = model.PaymentStatusCompleted
 		payment.ConfirmedAt = sql.NullTime{Time: now, Valid: true}
+
+		// COMPLIANCE: Update merchant monthly volume when payment is completed
+		if s.complianceService != nil && s.merchantRepo != nil {
+			merchant, err := s.merchantRepo.GetByID(payment.MerchantID)
+			if err != nil {
+				s.logger.WithFields(logrus.Fields{
+					"payment_id":  payment.ID,
+					"merchant_id": payment.MerchantID,
+					"error":       err.Error(),
+				}).Warn("Failed to get merchant for monthly volume update (non-fatal)")
+			} else {
+				// Calculate USD amount (for USDT/USDC, crypto amount IS USD amount)
+				amountUSD := payment.AmountCrypto
+
+				// Update monthly volume
+				newVolume := merchant.TotalVolumeThisMonthUSD.Add(amountUSD)
+				merchant.TotalVolumeThisMonthUSD = newVolume
+
+				// Update merchant in database
+				err = s.merchantRepo.Update(merchant)
+				if err != nil {
+					s.logger.WithFields(logrus.Fields{
+						"payment_id":  payment.ID,
+						"merchant_id": payment.MerchantID,
+						"amount_usd":  amountUSD.String(),
+						"error":       err.Error(),
+					}).Error("Failed to update merchant monthly volume (non-fatal)")
+					// Don't fail payment confirmation if monthly volume update fails
+				} else {
+					s.logger.WithFields(logrus.Fields{
+						"payment_id":       payment.ID,
+						"merchant_id":      payment.MerchantID,
+						"amount_usd":       amountUSD.String(),
+						"new_monthly_vol":  newVolume.String(),
+						"monthly_limit":    merchant.MonthlyLimitUSD.String(),
+					}).Info("Merchant monthly volume updated successfully")
+				}
+			}
+		}
 	}
 
 	// Update payment in database
