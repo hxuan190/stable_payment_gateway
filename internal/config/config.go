@@ -12,19 +12,22 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	Environment string
-	Version     string
-	API         APIConfig
-	Database    DatabaseConfig
-	Redis       RedisConfig
-	Solana      SolanaConfig
-	BSC         BSCConfig
+	Environment  string
+	Version      string
+	API          APIConfig
+	Admin        AdminConfig
+	Database     DatabaseConfig
+	Redis        RedisConfig
+	Solana       SolanaConfig
+	BSC          BSCConfig
 	ExchangeRate ExchangeRateConfig
-	Security    SecurityConfig
-	Email       EmailConfig
-	Storage     StorageConfig
-	TRM         TRMConfig
-	JWT         JWTConfig
+	Security     SecurityConfig
+	Email        EmailConfig
+	Storage      StorageConfig
+	AWS          AWSConfig
+	TRM          TRMConfig
+	TRMLabs      TRMConfig // Alias for TRM
+	JWT          JWTConfig
 }
 
 // APIConfig contains API server configuration
@@ -35,6 +38,14 @@ type APIConfig struct {
 	ReadTimeout    time.Duration
 	WriteTimeout   time.Duration
 	AllowedOrigins []string
+}
+
+// AdminConfig contains admin server configuration
+type AdminConfig struct {
+	Port     int
+	Host     string
+	Email    string // Admin email for login
+	Password string // Admin password for login
 }
 
 // DatabaseConfig contains PostgreSQL configuration
@@ -121,6 +132,14 @@ type StorageConfig struct {
 	BaseURL         string
 }
 
+// AWSConfig contains AWS configuration for S3 and other services
+type AWSConfig struct {
+	Region          string
+	AccessKeyID     string
+	SecretAccessKey string
+	S3Bucket        string
+}
+
 // TRMConfig contains TRM Labs AML screening configuration
 type TRMConfig struct {
 	APIKey  string
@@ -139,6 +158,12 @@ func Load() (*Config, error) {
 	// Load .env file if it exists (ignore error if not found)
 	_ = godotenv.Load()
 
+	trmConfig := TRMConfig{
+		APIKey:  getEnv("TRM_API_KEY", ""),
+		BaseURL: getEnv("TRM_BASE_URL", "https://api.trmlabs.com"),
+		Timeout: getEnvAsInt("TRM_TIMEOUT", 30),
+	}
+
 	config := &Config{
 		Environment: getEnv("ENV", "development"),
 		Version:     getEnv("VERSION", "1.0.0"),
@@ -149,6 +174,12 @@ func Load() (*Config, error) {
 			ReadTimeout:    time.Duration(getEnvAsInt("API_READ_TIMEOUT", 30)) * time.Second,
 			WriteTimeout:   time.Duration(getEnvAsInt("API_WRITE_TIMEOUT", 30)) * time.Second,
 			AllowedOrigins: getEnvAsSlice("API_ALLOW_ORIGINS", []string{"http://localhost:3000"}),
+		},
+		Admin: AdminConfig{
+			Port:     getEnvAsInt("ADMIN_PORT", 8081),
+			Host:     getEnv("ADMIN_HOST", "0.0.0.0"),
+			Email:    getEnv("ADMIN_EMAIL", "admin@payment-gateway.vn"),
+			Password: getEnv("ADMIN_PASSWORD", ""),
 		},
 		Database: DatabaseConfig{
 			Host:         getEnv("DB_HOST", "localhost"),
@@ -218,11 +249,14 @@ func Load() (*Config, error) {
 			Endpoint:        getEnv("STORAGE_ENDPOINT", ""),
 			BaseURL:         getEnv("STORAGE_BASE_URL", "/uploads"),
 		},
-		TRM: TRMConfig{
-			APIKey:  getEnv("TRM_API_KEY", ""),
-			BaseURL: getEnv("TRM_BASE_URL", "https://api.trmlabs.com"),
-			Timeout: getEnvAsInt("TRM_TIMEOUT", 30),
+		AWS: AWSConfig{
+			Region:          getEnv("AWS_REGION", "us-east-1"),
+			AccessKeyID:     getEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey: getEnv("AWS_SECRET_ACCESS_KEY", ""),
+			S3Bucket:        getEnv("AWS_S3_BUCKET", ""),
 		},
+		TRM:     trmConfig,
+		TRMLabs: trmConfig, // Set alias for backwards compatibility
 		JWT: JWTConfig{
 			Secret:          getEnv("JWT_SECRET", ""),
 			ExpirationHours: getEnvAsInt("JWT_EXPIRATION_HOURS", 24),

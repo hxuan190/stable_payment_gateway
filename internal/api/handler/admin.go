@@ -333,7 +333,7 @@ func (h *AdminHandler) ListPayouts(c *gin.Context) {
 	}
 
 	// Build list items with merchant names
-	items := make([]*dto.PayoutListItem, len(payouts))
+	items := make([]*dto.AdminPayoutListItem, len(payouts))
 	for i, payout := range payouts {
 		// Get merchant name
 		merchant, err := h.merchantRepo.GetByID(payout.MerchantID)
@@ -341,12 +341,12 @@ func (h *AdminHandler) ListPayouts(c *gin.Context) {
 		if err == nil {
 			merchantName = merchant.BusinessName
 		}
-		items[i] = dto.PayoutToListItem(payout, merchantName)
+		items[i] = dto.AdminPayoutToListItem(payout, merchantName)
 	}
 
 	// Build response
 	response := dto.APIResponse{
-		Data: dto.ListPayoutsResponse{
+		Data: dto.AdminListPayoutsResponse{
 			Payouts: items,
 			Total:   len(items),
 			Limit:   query.Limit,

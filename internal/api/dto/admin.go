@@ -140,8 +140,8 @@ type PayoutDetailResponse struct {
 	UpdatedAt           time.Time       `json:"updated_at" example:"2025-11-17T10:00:00Z"`
 }
 
-// PayoutListItem represents a payout in the list view
-type PayoutListItem struct {
+// AdminPayoutListItem represents a payout in the admin list view (renamed to avoid conflict with payout.go)
+type AdminPayoutListItem struct {
 	ID           string          `json:"id" example:"payout_550e8400"`
 	MerchantID   string          `json:"merchant_id" example:"550e8400-e29b-41d4-a716-446655440000"`
 	MerchantName string          `json:"merchant_name" example:"Da Nang Beach Resort"`
@@ -151,12 +151,12 @@ type PayoutListItem struct {
 	RequestedAt  time.Time       `json:"requested_at" example:"2025-11-17T08:00:00Z"`
 }
 
-// ListPayoutsResponse represents the response for listing payouts
-type ListPayoutsResponse struct {
-	Payouts []*PayoutListItem `json:"payouts"`
-	Total   int               `json:"total" example:"15"`
-	Limit   int               `json:"limit" example:"20"`
-	Offset  int               `json:"offset" example:"0"`
+// AdminListPayoutsResponse represents the response for listing payouts in admin (renamed to avoid conflict)
+type AdminListPayoutsResponse struct {
+	Payouts []*AdminPayoutListItem `json:"payouts"`
+	Total   int                    `json:"total" example:"15"`
+	Limit   int                    `json:"limit" example:"20"`
+	Offset  int                    `json:"offset" example:"0"`
 }
 
 // Admin System Statistics DTOs
@@ -205,27 +205,47 @@ type DailyStatsResponse struct {
 // MerchantToDetailResponse converts a merchant model to a detail response DTO
 func MerchantToDetailResponse(merchant *model.Merchant, balance *model.MerchantBalance) *MerchantDetailResponse {
 	response := &MerchantDetailResponse{
-		ID:                    merchant.ID,
-		Email:                 merchant.Email,
-		BusinessName:          merchant.BusinessName,
-		BusinessTaxID:         merchant.BusinessTaxID,
-		BusinessLicenseNumber: merchant.BusinessLicenseNumber,
-		OwnerFullName:         merchant.OwnerFullName,
-		OwnerIDCard:           merchant.OwnerIDCard,
-		PhoneNumber:           merchant.PhoneNumber,
-		BusinessAddress:       merchant.BusinessAddress,
-		City:                  merchant.City,
-		District:              merchant.District,
-		BankAccountName:       merchant.BankAccountName,
-		BankAccountNumber:     merchant.BankAccountNumber,
-		BankName:              merchant.BankName,
-		KYCStatus:             string(merchant.KYCStatus),
-		IsActive:              merchant.IsActive,
-		CreatedAt:             merchant.CreatedAt,
-		UpdatedAt:             merchant.UpdatedAt,
+		ID:            merchant.ID,
+		Email:         merchant.Email,
+		BusinessName:  merchant.BusinessName,
+		OwnerFullName: merchant.OwnerFullName,
+		KYCStatus:     string(merchant.KYCStatus),
+		IsActive:      merchant.IsActive(),
+		CreatedAt:     merchant.CreatedAt,
+		UpdatedAt:     merchant.UpdatedAt,
 	}
 
-	// Handle nullable fields
+	// Handle nullable string fields
+	if merchant.BusinessTaxID.Valid {
+		response.BusinessTaxID = merchant.BusinessTaxID.String
+	}
+	if merchant.BusinessLicenseNumber.Valid {
+		response.BusinessLicenseNumber = merchant.BusinessLicenseNumber.String
+	}
+	if merchant.OwnerIDCard.Valid {
+		response.OwnerIDCard = merchant.OwnerIDCard.String
+	}
+	if merchant.PhoneNumber.Valid {
+		response.PhoneNumber = merchant.PhoneNumber.String
+	}
+	if merchant.BusinessAddress.Valid {
+		response.BusinessAddress = merchant.BusinessAddress.String
+	}
+	if merchant.City.Valid {
+		response.City = merchant.City.String
+	}
+	if merchant.District.Valid {
+		response.District = merchant.District.String
+	}
+	if merchant.BankAccountName.Valid {
+		response.BankAccountName = merchant.BankAccountName.String
+	}
+	if merchant.BankAccountNumber.Valid {
+		response.BankAccountNumber = merchant.BankAccountNumber.String
+	}
+	if merchant.BankName.Valid {
+		response.BankName = merchant.BankName.String
+	}
 	if merchant.BankBranch.Valid {
 		response.BankBranch = merchant.BankBranch.String
 	}
@@ -235,18 +255,14 @@ func MerchantToDetailResponse(merchant *model.Merchant, balance *model.MerchantB
 	if merchant.KYCApprovedBy.Valid {
 		response.KYCApprovedBy = merchant.KYCApprovedBy.String
 	}
-	if merchant.KYCRejectedAt.Valid {
-		response.KYCRejectedAt = &merchant.KYCRejectedAt.Time
-	}
+	// Note: KYCRejectedAt field doesn't exist in model, only KYCRejectionReason
 	if merchant.KYCRejectionReason.Valid {
 		response.KYCRejectionReason = merchant.KYCRejectionReason.String
 	}
 	if merchant.APIKey.Valid {
 		response.APIKey = merchant.APIKey.String
 	}
-	if merchant.APIKeyLastUsedAt.Valid {
-		response.APIKeyLastUsedAt = &merchant.APIKeyLastUsedAt.Time
-	}
+	// Note: APIKeyLastUsedAt field doesn't exist in current model
 	if merchant.WebhookURL.Valid {
 		response.WebhookURL = merchant.WebhookURL.String
 	}
@@ -273,7 +289,7 @@ func MerchantToListItem(merchant *model.Merchant) *MerchantListItem {
 		Email:        merchant.Email,
 		BusinessName: merchant.BusinessName,
 		KYCStatus:    string(merchant.KYCStatus),
-		IsActive:     merchant.IsActive,
+		IsActive:     merchant.IsActive(),
 		CreatedAt:    merchant.CreatedAt,
 	}
 
@@ -336,9 +352,9 @@ func PayoutToDetailResponse(payout *model.Payout, merchantName string) *PayoutDe
 	return response
 }
 
-// PayoutToListItem converts a payout model to a list item DTO
-func PayoutToListItem(payout *model.Payout, merchantName string) *PayoutListItem {
-	return &PayoutListItem{
+// AdminPayoutToListItem converts a payout model to an admin list item DTO (renamed to avoid conflict)
+func AdminPayoutToListItem(payout *model.Payout, merchantName string) *AdminPayoutListItem {
+	return &AdminPayoutListItem{
 		ID:           payout.ID,
 		MerchantID:   payout.MerchantID,
 		MerchantName: merchantName,
@@ -416,7 +432,7 @@ type GetComplianceMetricsResponse struct {
 // TravelRuleDataToListItem converts a model.TravelRuleData to TravelRuleDataItem
 func TravelRuleDataToListItem(data *model.TravelRuleData) TravelRuleDataItem {
 	item := TravelRuleDataItem{
-		ID:                  data.ID.String(),
+		ID:                  data.ID, // ID is already a string
 		PaymentID:           data.PaymentID,
 		PayerFullName:       data.PayerFullName,
 		PayerWalletAddress:  data.PayerWalletAddress,
