@@ -3,6 +3,7 @@ module github.com/hxuan190/stable_payment_gateway
 go 1.24.7
 
 require (
+	github.com/ethereum/go-ethereum v1.13.5
 	github.com/gagliardetto/solana-go v1.14.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0
