@@ -23,6 +23,8 @@ type Config struct {
 	Security    SecurityConfig
 	Email       EmailConfig
 	Storage     StorageConfig
+	TRM         TRMConfig
+	JWT         JWTConfig
 }
 
 // APIConfig contains API server configuration
@@ -119,6 +121,19 @@ type StorageConfig struct {
 	BaseURL         string
 }
 
+// TRMConfig contains TRM Labs AML screening configuration
+type TRMConfig struct {
+	APIKey  string
+	BaseURL string
+	Timeout int // seconds
+}
+
+// JWTConfig contains JWT authentication configuration
+type JWTConfig struct {
+	Secret          string
+	ExpirationHours int
+}
+
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	// Load .env file if it exists (ignore error if not found)
@@ -202,6 +217,15 @@ func Load() (*Config, error) {
 			SecretAccessKey: getEnv("STORAGE_SECRET_ACCESS_KEY", ""),
 			Endpoint:        getEnv("STORAGE_ENDPOINT", ""),
 			BaseURL:         getEnv("STORAGE_BASE_URL", "/uploads"),
+		},
+		TRM: TRMConfig{
+			APIKey:  getEnv("TRM_API_KEY", ""),
+			BaseURL: getEnv("TRM_BASE_URL", "https://api.trmlabs.com"),
+			Timeout: getEnvAsInt("TRM_TIMEOUT", 30),
+		},
+		JWT: JWTConfig{
+			Secret:          getEnv("JWT_SECRET", ""),
+			ExpirationHours: getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
 		},
 	}
 

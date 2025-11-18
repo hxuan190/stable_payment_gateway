@@ -19,6 +19,7 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/service"
 )
@@ -156,6 +157,9 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	payoutRepo := s.initPayoutRepository()
 	balanceRepo := s.initBalanceRepository()
 	ledgerRepo := s.initLedgerRepository()
+	auditRepo := s.initAuditLogRepository()
+	travelRuleRepo := s.initTravelRuleRepository()
+	kycDocumentRepo := s.initKYCDocumentRepository()
 
 	// Initialize services
 	exchangeRateService := s.initExchangeRateService()
@@ -166,22 +170,29 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	// Initialize merchant service for admin
 	merchantService := s.initMerchantService(merchantRepo, balanceRepo)
 
+	// Initialize compliance services
+	amlService := s.initAMLService(auditRepo, paymentRepo)
+	complianceService := s.initComplianceService(amlService, merchantRepo, travelRuleRepo, kycDocumentRepo, paymentRepo, auditRepo)
+
 	// Initialize handlers
 	// Use storage base URL or construct from API config
 	baseURL := s.config.Storage.BaseURL
 	if baseURL == "" {
 		baseURL = fmt.Sprintf("http://%s:%d", s.config.API.Host, s.config.API.Port)
 	}
-	// TODO: Initialize ComplianceService properly when compliance features are implemented
-	paymentHandler := handler.NewPaymentHandler(paymentService, nil, exchangeRateService, baseURL)
+	paymentHandler := handler.NewPaymentHandler(paymentService, complianceService, exchangeRateService, baseURL)
 	payoutHandler := handler.NewPayoutHandler(payoutService)
+	kycHandler := handler.NewKYCHandler(kycDocumentRepo, merchantRepo, complianceService, s.config.Storage)
 	adminHandler := handler.NewAdminHandler(
 		merchantService,
 		payoutService,
+		complianceService,
 		merchantRepo,
 		payoutRepo,
 		paymentRepo,
 		balanceRepo,
+		travelRuleRepo,
+		kycDocumentRepo,
 		s.solanaWallet,
 	)
 
@@ -239,6 +250,19 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		logger.Warn("WebSocket disabled: Redis cache not available")
 	}
 
+	// Merchant KYC routes (API key authentication required)
+	kycGroup := v1.Group("/merchants/kyc")
+	kycGroup.Use(middleware.APIKeyAuth(middleware.APIKeyAuthConfig{
+		MerchantRepo: merchantRepo,
+		Cache:        s.cache,
+		CacheTTL:     5 * time.Minute,
+	}))
+	{
+		kycGroup.POST("/documents", kycHandler.UploadDocument)
+		kycGroup.GET("/documents", kycHandler.ListDocuments)
+		kycGroup.DELETE("/documents/:id", kycHandler.DeleteDocument)
+	}
+
 	// Admin routes (JWT authentication required)
 	adminGroup := router.Group("/api/admin")
 	adminGroup.Use(middleware.JWTAuth(s.config.JWT.Secret))
@@ -248,6 +272,16 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		adminGroup.POST("/merchants/:id/kyc/reject", adminHandler.RejectKYC)
 		adminGroup.GET("/merchants", adminHandler.ListMerchants)
 		adminGroup.GET("/merchants/:id", adminHandler.GetMerchant)
+
+		// KYC Document management
+		adminGroup.GET("/kyc/documents/pending", adminHandler.GetPendingKYCDocuments)
+		adminGroup.POST("/kyc/documents/:id/approve", adminHandler.ApproveKYCDocument)
+		adminGroup.POST("/kyc/documents/:id/reject", adminHandler.RejectKYCDocument)
+
+		// Compliance management
+		adminGroup.GET("/compliance/travel-rule", adminHandler.GetTravelRuleData)
+		adminGroup.GET("/compliance/metrics/:merchant_id", adminHandler.GetComplianceMetrics)
+		adminGroup.POST("/merchants/:id/upgrade-tier", adminHandler.UpgradeMerchantTier)
 
 		// Payout management
 		adminGroup.GET("/payouts", adminHandler.ListPayouts)
@@ -414,5 +448,74 @@ func (s *Server) initMerchantService(
 		merchantRepo,
 		balanceRepo,
 		s.db,
+	)
+}
+
+func (s *Server) initAuditLogRepository() *repository.AuditLogRepository {
+	return repository.NewAuditLogRepository(s.db, logger.GetLogger())
+}
+
+func (s *Server) initTravelRuleRepository() *repository.TravelRuleRepository {
+	return repository.NewTravelRuleRepository(s.db, logger.GetLogger())
+}
+
+func (s *Server) initKYCDocumentRepository() *repository.KYCDocumentRepository {
+	return repository.NewKYCDocumentRepository(s.db, logger.GetLogger())
+}
+
+func (s *Server) initAMLService(
+	auditRepo *repository.AuditLogRepository,
+	paymentRepo *repository.PaymentRepository,
+) service.AMLService {
+	// Initialize TRM Labs client (with mock for development)
+	trmClient := s.initTRMLabsClient()
+
+	return service.NewAMLService(
+		trmClient,
+		auditRepo,
+		paymentRepo,
+		logger.GetLogger(),
+	)
+}
+
+func (s *Server) initTRMLabsClient() service.TRMLabsClient {
+	// Check if we have TRM Labs API key configured
+	trmAPIKey := s.config.TRM.APIKey
+	trmBaseURL := s.config.TRM.BaseURL
+
+	if trmAPIKey != "" && trmBaseURL != "" {
+		// Use real TRM Labs client
+		client, err := trmlabs.NewClient(trmAPIKey, trmBaseURL)
+		if err != nil {
+			logger.Warn("Failed to initialize TRM Labs client, using mock", logger.Fields{
+				"error": err.Error(),
+			})
+			return trmlabs.NewMockClient()
+		}
+		logger.Info("TRM Labs client initialized (production mode)")
+		return client
+	}
+
+	// Use mock client for development/testing
+	logger.Info("TRM Labs client initialized (mock mode)")
+	return trmlabs.NewMockClient()
+}
+
+func (s *Server) initComplianceService(
+	amlService service.AMLService,
+	merchantRepo *repository.MerchantRepository,
+	travelRuleRepo *repository.TravelRuleRepository,
+	kycDocumentRepo *repository.KYCDocumentRepository,
+	paymentRepo *repository.PaymentRepository,
+	auditRepo *repository.AuditLogRepository,
+) service.ComplianceService {
+	return service.NewComplianceService(
+		amlService,
+		merchantRepo,
+		travelRuleRepo,
+		kycDocumentRepo,
+		paymentRepo,
+		auditRepo,
+		logger.GetLogger(),
 	)
 }
