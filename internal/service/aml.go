@@ -47,7 +47,7 @@ type AMLService interface {
 
 type amlServiceImpl struct {
 	trmClient  TRMLabsClient
-	auditRepo  repository.AuditLogRepository
+	auditRepo  *repository.AuditRepository  // Fixed: correct repository type
 	paymentRepo repository.PaymentRepository
 	logger     *logger.Logger
 	// Risk thresholds
@@ -65,7 +65,7 @@ type TRMLabsClient interface {
 // NewAMLService creates a new AML service
 func NewAMLService(
 	trmClient TRMLabsClient,
-	auditRepo repository.AuditLogRepository,
+	auditRepo *repository.AuditRepository,  // Fixed: correct repository type
 	paymentRepo repository.PaymentRepository,
 	logger *logger.Logger,
 ) AMLService {
@@ -131,16 +131,18 @@ func (s *amlServiceImpl) RecordScreeningResult(ctx context.Context, paymentID uu
 	}
 
 	auditLog := &model.AuditLog{
-		ID:           uuid.New(),
-		ActorType:    "system",
-		Action:       "aml_screening",
-		ResourceType: "payment",
-		ResourceID:   paymentID,
-		Metadata:     metadata,
-		CreatedAt:    time.Now(),
+		ID:             uuid.New().String(),  // Fixed: convert UUID to string
+		ActorType:      model.ActorTypeSystem,
+		Action:         "aml_screening",
+		ActionCategory: model.ActionCategoryPayment,
+		ResourceType:   "payment",
+		ResourceID:     paymentID.String(),  // Fixed: convert UUID to string
+		Status:         model.AuditStatusSuccess,
+		Metadata:       metadata,
+		CreatedAt:      time.Now(),
 	}
 
-	if err := s.auditRepo.Create(ctx, auditLog); err != nil {
+	if err := s.auditRepo.Create(auditLog); err != nil {  // Fixed: removed ctx parameter
 		s.logger.Error("Failed to record AML screening result", err, map[string]interface{}{
 			"payment_id": paymentID,
 		})
@@ -219,9 +221,11 @@ func (s *amlServiceImpl) ValidateTransaction(ctx context.Context, paymentID uuid
 func (s *amlServiceImpl) GetScreeningHistory(ctx context.Context, walletAddress string) ([]*AMLScreeningResult, error) {
 	// Query audit logs for AML screening records
 	// This is a simplified implementation - in production, you might want a dedicated table
-	auditLogs, err := s.auditRepo.List(ctx, repository.AuditLogFilter{
-		Action:       "aml_screening",
-		ResourceType: "payment",
+	action := "aml_screening"
+	resourceType := "payment"
+	auditLogs, err := s.auditRepo.List(repository.AuditFilter{  // Fixed: removed ctx parameter
+		Action:       &action,
+		ResourceType: &resourceType,
 		Limit:        100,
 	})
 	if err != nil {
