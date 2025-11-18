@@ -155,18 +155,25 @@ func TestGetUSDTToVND_CoinGeckoFallbackToBinance(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	service := NewExchangeRateService(
+	service := NewExchangeRateServiceWithConfig(
 		coinGeckoServer.URL,
 		binanceServer.URL,
+		"",
 		5*time.Minute,
-		10*time.Second,
+		24*time.Hour,
+		2*time.Second,
+		0, // No retries to make test faster
 		cache,
 		logger,
+		&CircuitBreakerConfig{
+			Threshold: 10,
+			Timeout:   60 * time.Second,
+		},
 	)
 
 	_, err := service.GetUSDTToVND(context.Background())
 	assert.Error(t, err)
-	assert.Equal(t, ErrExchangeRateNotAvailable, err)
+	assert.ErrorIs(t, err, ErrAllProvidersFailed)
 }
 
 func TestGetUSDTToVND_InvalidResponse(t *testing.T) {
@@ -375,18 +382,271 @@ func TestGetUSDTToVND_ContextTimeout(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	service := NewExchangeRateService(
+	service := NewExchangeRateServiceWithConfig(
 		server.URL,
-		"https://api.binance.com/api/v3",
+		"",
+		"",
 		5*time.Minute,
+		24*time.Hour,
 		100*time.Millisecond, // Very short timeout
+		0, // No retries to make test faster
 		cache,
 		logger,
+		&CircuitBreakerConfig{
+			Threshold: 5,
+			Timeout:   60 * time.Second,
+		},
 	)
 
 	ctx := context.Background()
 	_, err := service.GetUSDTToVND(ctx)
 	assert.Error(t, err)
+}
+
+// TestRetryWithExponentialBackoff tests the retry logic
+func TestRetryWithExponentialBackoff(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		response := CoinGeckoResponse{}
+		response.Tether.VND = 25000.00
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cache := NewMockCache()
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	service := NewExchangeRateServiceWithConfig(
+		server.URL,
+		"",
+		"",
+		5*time.Minute,
+		24*time.Hour,
+		10*time.Second,
+		3, // Allow 3 retries
+		cache,
+		logger,
+		nil,
+	)
+
+	rate, err := service.GetUSDTToVND(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "25000", rate.String())
+	assert.Equal(t, 3, attempts, "Should have made 3 attempts")
+}
+
+// TestCircuitBreaker tests the circuit breaker functionality
+func TestCircuitBreaker(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cache := NewMockCache()
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	service := NewExchangeRateServiceWithConfig(
+		server.URL,
+		"",
+		"",
+		5*time.Minute,
+		24*time.Hour,
+		1*time.Second,
+		0, // No retries
+		cache,
+		logger,
+		&CircuitBreakerConfig{
+			Threshold: 3,
+			Timeout:   10 * time.Second,
+		},
+	)
+
+	// Make requests until circuit breaker opens
+	for i := 0; i < 5; i++ {
+		_, err := service.GetUSDTToVND(context.Background())
+		assert.Error(t, err)
+	}
+
+	// Check circuit breaker status
+	status := service.GetCircuitBreakerStatus()
+	assert.True(t, status["coingecko"].IsOpen, "Circuit breaker should be open")
+	assert.GreaterOrEqual(t, status["coingecko"].FailureCount, 3)
+
+	// Reset circuit breaker
+	service.ResetCircuitBreaker("coingecko")
+	status = service.GetCircuitBreakerStatus()
+	assert.False(t, status["coingecko"].IsOpen, "Circuit breaker should be closed after reset")
+}
+
+// TestStaleCacheFallback tests the stale cache fallback
+func TestStaleCacheFallback(t *testing.T) {
+	// Create a server that always fails
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cache := NewMockCache()
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	// Pre-populate stale cache
+	staleRate := decimal.NewFromFloat(24000.00)
+	cache.Set(context.Background(), cacheKeyStaleUSDTVND, staleRate.String(), 24*time.Hour)
+
+	service := NewExchangeRateServiceWithConfig(
+		server.URL,
+		"",
+		"",
+		5*time.Minute,
+		24*time.Hour,
+		1*time.Second,
+		0, // No retries
+		cache,
+		logger,
+		&CircuitBreakerConfig{
+			Threshold: 10,
+			Timeout:   60 * time.Second,
+		},
+	)
+
+	// Should fall back to stale cache
+	rate, err := service.GetUSDTToVND(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "24000", rate.String())
+}
+
+// TestHealthCheck tests the health check functionality
+func TestHealthCheck(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := CoinGeckoResponse{}
+		response.Tether.VND = 25000.00
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cache := NewMockCache()
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	service := NewExchangeRateServiceWithConfig(
+		server.URL,
+		"",
+		"",
+		5*time.Minute,
+		24*time.Hour,
+		10*time.Second,
+		3,
+		cache,
+		logger,
+		nil,
+	)
+
+	// Populate cache
+	cache.Set(context.Background(), cacheKeyUSDTVND, "25000", 5*time.Minute)
+
+	status := service.HealthCheck(context.Background())
+
+	assert.True(t, status["coingecko"].Healthy, "CoinGecko should be healthy")
+	assert.True(t, status["cache"].Healthy, "Cache should be healthy")
+	assert.Contains(t, status["coingecko"].Message, "healthy")
+}
+
+// TestCryptoCompare tests the CryptoCompare provider
+func TestFetchFromCryptoCompare(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Contains(t, r.URL.Path, "/price")
+		assert.Equal(t, "USDT", r.URL.Query().Get("fsym"))
+		assert.Equal(t, "VND", r.URL.Query().Get("tsyms"))
+
+		response := CryptoCompareResponse{
+			VND: 25400.50,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cache := NewMockCache()
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	service := NewExchangeRateServiceWithConfig(
+		"http://invalid-url.com", // Make CoinGecko fail
+		"http://invalid-url.com", // Make Binance fail
+		server.URL,               // CryptoCompare should work
+		5*time.Minute,
+		24*time.Hour,
+		2*time.Second,
+		0, // No retries to make test faster
+		cache,
+		logger,
+		&CircuitBreakerConfig{
+			Threshold: 10,
+			Timeout:   60 * time.Second,
+		},
+	)
+
+	rate, err := service.GetUSDTToVND(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "25400.5", rate.String())
+}
+
+// TestMultipleProviderFallback tests fallback between multiple providers
+func TestMultipleProviderFallback(t *testing.T) {
+	coinGeckoAttempts := 0
+	cryptocompareAttempts := 0
+
+	// CoinGecko fails
+	coinGeckoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		coinGeckoAttempts++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer coinGeckoServer.Close()
+
+	// CryptoCompare succeeds
+	cryptocompareServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cryptocompareAttempts++
+		response := CryptoCompareResponse{VND: 25500.00}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer cryptocompareServer.Close()
+
+	cache := NewMockCache()
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	service := NewExchangeRateServiceWithConfig(
+		coinGeckoServer.URL,
+		"",
+		cryptocompareServer.URL,
+		5*time.Minute,
+		24*time.Hour,
+		2*time.Second,
+		0, // No retries
+		cache,
+		logger,
+		&CircuitBreakerConfig{
+			Threshold: 10,
+			Timeout:   60 * time.Second,
+		},
+	)
+
+	rate, err := service.GetUSDTToVND(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "25500", rate.String())
+	assert.Greater(t, coinGeckoAttempts, 0, "Should have tried CoinGecko")
+	assert.Greater(t, cryptocompareAttempts, 0, "Should have tried CryptoCompare")
 }
 
 func TestFetchFromCoinGecko_Success(t *testing.T) {
