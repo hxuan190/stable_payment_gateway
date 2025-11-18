@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	solanasdk "github.com/gagliardetto/solana-go"
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
@@ -95,7 +96,41 @@ func main() {
 		appLogger,
 	)
 
-	// TODO: Start Solana blockchain listener with confirmation callback
+	// Configure supported token mints for Solana
+	supportedTokenMints := createSupportedTokenMints(cfg, appLogger)
+
+	// Create Solana Client for listener
+	solanaClient, err := solana.NewClientWithURL(cfg.Solana.RPCURL)
+	if err != nil {
+		appLogger.WithError(err).Fatal("Failed to create Solana client for listener")
+	}
+
+	// Initialize and start Solana blockchain listener
+	solanaListener, err := solana.NewTransactionListener(solana.ListenerConfig{
+		Client:               solanaClient,
+		Wallet:               solanaWallet,
+		WSURL:                "", // Will be derived from RPC URL
+		ConfirmationCallback: confirmationCallback,
+		SupportedTokenMints:  supportedTokenMints,
+		PollInterval:         10 * time.Second,
+		MaxRetries:           3,
+	})
+	if err != nil {
+		appLogger.WithError(err).Fatal("Failed to create Solana transaction listener")
+	}
+
+	appLogger.WithFields(logrus.Fields{
+		"wallet_address": solanaListener.GetWalletAddress(),
+		"supported_tokens": len(supportedTokenMints),
+	}).Info("Solana transaction listener configured")
+
+	// Start the listener
+	if err := solanaListener.Start(); err != nil {
+		appLogger.WithError(err).Fatal("Failed to start Solana transaction listener")
+	}
+
+	appLogger.Info("Solana transaction listener started successfully")
+
 	// TODO: Start BSC blockchain listener when BSC support is added
 
 	// Start wallet balance monitor
@@ -128,9 +163,15 @@ func main() {
 
 	appLogger.Info("Shutting down blockchain listener...")
 
+	// Stop Solana listener
+	if err := solanaListener.Stop(); err != nil {
+		appLogger.WithError(err).Error("Error stopping Solana listener")
+	}
+
 	// Stop wallet monitor
 	walletMonitor.Stop()
 
+	appLogger.Info("Blockchain listener stopped successfully")
 	fmt.Println("Blockchain listener stopped successfully")
 }
 
@@ -224,7 +265,7 @@ func createPaymentConfirmationCallback(
 		}).Info("Processing payment confirmation")
 
 		// Get payment to extract sender address
-		payment, err := paymentService.GetPaymentByID(ctx, paymentID)
+		payment, err := paymentService.GetPaymentStatus(ctx, paymentID)
 		if err != nil {
 			appLogger.WithError(err).Error("Failed to get payment for AML screening")
 			return fmt.Errorf("failed to get payment: %w", err)
@@ -324,4 +365,51 @@ func initTRMLabsClient(apiKey, baseURL string) (service.TRMLabsClient, error) {
 // createMockTRMClient creates a mock TRM Labs client for development
 func createMockTRMClient() service.TRMLabsClient {
 	return trmlabs.NewMockClient()
+}
+
+// createSupportedTokenMints creates a map of supported token mints from config
+func createSupportedTokenMints(cfg *config.Config, appLogger *logrus.Logger) map[string]solana.TokenMintInfo {
+	supportedTokens := make(map[string]solana.TokenMintInfo)
+
+	// Add USDT if configured
+	if cfg.Solana.USDTMint != "" {
+		usdtMint, err := solanasdk.PublicKeyFromBase58(cfg.Solana.USDTMint)
+		if err != nil {
+			appLogger.WithFields(logrus.Fields{
+				"error": err.Error(),
+				"mint":  cfg.Solana.USDTMint,
+			}).Warn("Invalid USDT mint address, skipping")
+		} else {
+			supportedTokens["USDT"] = solana.TokenMintInfo{
+				MintAddress: usdtMint,
+				Symbol:      "USDT",
+				Decimals:    6, // USDT uses 6 decimals on Solana
+			}
+			appLogger.WithField("mint", cfg.Solana.USDTMint).Info("USDT support configured")
+		}
+	}
+
+	// Add USDC if configured
+	if cfg.Solana.USDCMint != "" {
+		usdcMint, err := solanasdk.PublicKeyFromBase58(cfg.Solana.USDCMint)
+		if err != nil {
+			appLogger.WithFields(logrus.Fields{
+				"error": err.Error(),
+				"mint":  cfg.Solana.USDCMint,
+			}).Warn("Invalid USDC mint address, skipping")
+		} else {
+			supportedTokens["USDC"] = solana.TokenMintInfo{
+				MintAddress: usdcMint,
+				Symbol:      "USDC",
+				Decimals:    6, // USDC uses 6 decimals on Solana
+			}
+			appLogger.WithField("mint", cfg.Solana.USDCMint).Info("USDC support configured")
+		}
+	}
+
+	if len(supportedTokens) == 0 {
+		appLogger.Warn("No supported token mints configured - listener will not process any payments")
+	}
+
+	return supportedTokens
 }
