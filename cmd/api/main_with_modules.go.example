@@ -1,0 +1,159 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/hxuan190/stable_payment_gateway/internal/api"
+	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
+	"github.com/hxuan190/stable_payment_gateway/internal/shared/events"
+)
+
+// This example shows how to integrate the module registry into cmd/api/main.go
+// To use this:
+// 1. Copy relevant sections to your main.go
+// 2. Initialize module registry after services are created
+// 3. Use registry.Shutdown() in graceful shutdown
+
+func main() {
+	// Initialize logger
+	logger.Init(logger.Config{
+		Level:  "info",
+		Format: "json",
+	})
+
+	logger.Info("Starting Payment Gateway API Server (with Modular Architecture)...")
+
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Fatal("Failed to load configuration", err)
+	}
+
+	// Initialize database
+	db, err := database.New(&cfg.Database)
+	if err != nil {
+		logger.Fatal("Failed to initialize database connection", err)
+	}
+
+	// Initialize Redis
+	redisClient, err := cache.NewRedisCache(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password, cfg.Redis.DB)
+	if err != nil {
+		logger.Fatal("Failed to initialize Redis connection", err)
+	}
+
+	// ========================================
+	// NEW: Initialize Event Bus
+	// ========================================
+	eventBus := events.NewInMemoryEventBus(logger.GetLogger())
+	logger.Info("Event bus initialized")
+
+	// ========================================
+	// Initialize API Server (existing code)
+	// This creates all services and handlers
+	// ========================================
+	apiServer, err := api.NewServer(&api.Config{
+		DB:          db,
+		Redis:       redisClient,
+		Config:      cfg,
+		Environment: cfg.Environment,
+	})
+	if err != nil {
+		logger.Fatal("Failed to initialize API server", err)
+	}
+
+	// ========================================
+	// NEW: Create Module Registry
+	// Wrap existing services with modular structure
+	// ========================================
+	moduleRegistry := modules.NewRegistry(modules.RegistryConfig{
+		// Extract services from API server
+		PaymentService:      apiServer.GetPaymentService(),
+		MerchantService:     apiServer.GetMerchantService(),
+		PayoutService:       apiServer.GetPayoutService(),
+		ComplianceService:   apiServer.GetComplianceService(),
+		LedgerService:       apiServer.GetLedgerService(),
+		NotificationService: apiServer.GetNotificationService(),
+
+		// Extract handlers
+		PaymentHandler:  apiServer.GetPaymentHandler(),
+		MerchantHandler: apiServer.GetMerchantHandler(),
+		PayoutHandler:   apiServer.GetPayoutHandler(),
+
+		// Blockchain listeners (if initialized)
+		SolanaListener: apiServer.GetSolanaListener(),
+		BSCListener:    apiServer.GetBSCListener(),
+
+		// Infrastructure
+		EventBus: eventBus,
+		Logger:   logger.GetLogger(),
+	})
+
+	logger.Info("Module registry initialized", logger.Fields{
+		"modules": moduleRegistry.GetModuleStatus(),
+	})
+
+	// ========================================
+	// Start HTTP Server
+	// ========================================
+	go func() {
+		addr := fmt.Sprintf(":%d", cfg.API.Port)
+		logger.Info("Starting HTTP server", logger.Fields{
+			"address": addr,
+		})
+
+		if err := apiServer.Start(addr); err != nil {
+			logger.Fatal("Failed to start HTTP server", err)
+		}
+	}()
+
+	logger.Info("API server started successfully", logger.Fields{
+		"port":        cfg.API.Port,
+		"environment": cfg.Environment,
+	})
+
+	// ========================================
+	// Graceful Shutdown
+	// ========================================
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("Shutting down server...")
+
+	// Create shutdown context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Shutdown module registry (stops listeners, event bus, etc.)
+	if err := moduleRegistry.Shutdown(ctx); err != nil {
+		logger.Error("Error during module shutdown", logger.Fields{
+			"error": err.Error(),
+		})
+	}
+
+	// Shutdown API server
+	if err := apiServer.Shutdown(ctx); err != nil {
+		logger.Error("Error during API server shutdown", logger.Fields{
+			"error": err.Error(),
+		})
+	}
+
+	// Close database connection
+	db.Close()
+	logger.Info("Database connection closed")
+
+	// Close Redis connection
+	redisClient.Close()
+	logger.Info("Redis connection closed")
+
+	logger.Info("Server shutdown complete")
+}
