@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/dto"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
@@ -17,13 +18,16 @@ import (
 
 // AdminHandler handles HTTP requests for admin operations
 type AdminHandler struct {
-	merchantService *service.MerchantService
-	payoutService   *service.PayoutService
-	merchantRepo    *repository.MerchantRepository
-	payoutRepo      *repository.PayoutRepository
-	paymentRepo     *repository.PaymentRepository
-	balanceRepo     *repository.BalanceRepository
-	solanaWallet    WalletBalanceGetter
+	merchantService   *service.MerchantService
+	payoutService     *service.PayoutService
+	complianceService service.ComplianceService
+	merchantRepo      *repository.MerchantRepository
+	payoutRepo        *repository.PayoutRepository
+	paymentRepo       *repository.PaymentRepository
+	balanceRepo       *repository.BalanceRepository
+	travelRuleRepo    repository.TravelRuleRepository
+	kycDocumentRepo   repository.KYCDocumentRepository
+	solanaWallet      WalletBalanceGetter
 }
 
 // WalletBalanceGetter is an interface for getting wallet balance
@@ -35,20 +39,26 @@ type WalletBalanceGetter interface {
 func NewAdminHandler(
 	merchantService *service.MerchantService,
 	payoutService *service.PayoutService,
+	complianceService service.ComplianceService,
 	merchantRepo *repository.MerchantRepository,
 	payoutRepo *repository.PayoutRepository,
 	paymentRepo *repository.PaymentRepository,
 	balanceRepo *repository.BalanceRepository,
+	travelRuleRepo repository.TravelRuleRepository,
+	kycDocumentRepo repository.KYCDocumentRepository,
 	solanaWallet WalletBalanceGetter,
 ) *AdminHandler {
 	return &AdminHandler{
-		merchantService: merchantService,
-		payoutService:   payoutService,
-		merchantRepo:    merchantRepo,
-		payoutRepo:      payoutRepo,
-		paymentRepo:     paymentRepo,
-		balanceRepo:     balanceRepo,
-		solanaWallet:    solanaWallet,
+		merchantService:   merchantService,
+		payoutService:     payoutService,
+		complianceService: complianceService,
+		merchantRepo:      merchantRepo,
+		payoutRepo:        payoutRepo,
+		paymentRepo:       paymentRepo,
+		balanceRepo:       balanceRepo,
+		travelRuleRepo:    travelRuleRepo,
+		kycDocumentRepo:   kycDocumentRepo,
+		solanaWallet:      solanaWallet,
 	}
 }
 
@@ -712,4 +722,394 @@ func (h *AdminHandler) GetDailyStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// ==================== Compliance Management ====================
+
+// GetTravelRuleData retrieves Travel Rule data with filtering
+// GET /admin/v1/compliance/travel-rule
+func (h *AdminHandler) GetTravelRuleData(c *gin.Context) {
+	var query dto.GetTravelRuleDataQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponseWithDetails(
+			"INVALID_QUERY",
+			"Invalid query parameters",
+			fmt.Sprintf("%v", err),
+		))
+		return
+	}
+
+	// Parse dates
+	startDate, err := time.Parse("2006-01-02", query.StartDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+			"INVALID_START_DATE",
+			"Start date must be in format YYYY-MM-DD",
+		))
+		return
+	}
+
+	endDate, err := time.Parse("2006-01-02", query.EndDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+			"INVALID_END_DATE",
+			"End date must be in format YYYY-MM-DD",
+		))
+		return
+	}
+
+	// Set defaults
+	if query.Limit == 0 {
+		query.Limit = 20
+	}
+
+	// Build filter
+	filter := repository.TravelRuleFilter{
+		StartDate: &startDate,
+		EndDate:   &endDate,
+	}
+
+	if query.Country != "" {
+		filter.Country = &query.Country
+	}
+
+	// Get Travel Rule data
+	ctx := c.Request.Context()
+	travelRuleData, err := h.travelRuleRepo.List(ctx, filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
+			"FAILED_TO_GET_TRAVEL_RULE_DATA",
+			"Failed to retrieve Travel Rule data",
+		))
+		return
+	}
+
+	// Apply pagination (simple in-memory for now)
+	total := len(travelRuleData)
+	start := query.Offset
+	end := query.Offset + query.Limit
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	paginatedData := travelRuleData[start:end]
+
+	// Convert to DTOs
+	items := make([]dto.TravelRuleDataItem, len(paginatedData))
+	for i, data := range paginatedData {
+		items[i] = dto.TravelRuleDataToListItem(data)
+	}
+
+	// Build response
+	response := dto.APIResponse{
+		Data: dto.GetTravelRuleDataResponse{
+			Data:   items,
+			Total:  total,
+			Limit:  query.Limit,
+			Offset: query.Offset,
+		},
+		Timestamp: time.Now(),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetPendingKYCDocuments retrieves all pending KYC documents across all merchants
+// GET /admin/v1/compliance/kyc-documents/pending
+func (h *AdminHandler) GetPendingKYCDocuments(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Get pending documents
+	documents, err := h.kycDocumentRepo.ListByStatus(ctx, model.KYCDocumentStatusPending)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
+			"FAILED_TO_GET_DOCUMENTS",
+			"Failed to retrieve pending KYC documents",
+		))
+		return
+	}
+
+	// Convert to DTOs
+	items := make([]dto.KYCDocumentItem, len(documents))
+	for i, doc := range documents {
+		items[i] = dto.KYCDocumentToListItem(doc)
+	}
+
+	response := dto.APIResponse{
+		Data: dto.ListKYCDocumentsResponse{
+			Documents: items,
+		},
+		Timestamp: time.Now(),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// ApproveKYCDocument approves a KYC document
+// POST /admin/v1/compliance/kyc-documents/:id/approve
+func (h *AdminHandler) ApproveKYCDocument(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	documentIDStr := c.Param("id")
+	documentID, err := parseUUID(documentIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+			"INVALID_DOCUMENT_ID",
+			"Invalid document ID format",
+		))
+		return
+	}
+
+	var req dto.ApproveKYCDocumentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponseWithDetails(
+			"INVALID_REQUEST",
+			"Invalid request body",
+			fmt.Sprintf("%v", err),
+		))
+		return
+	}
+
+	// Get document
+	doc, err := h.kycDocumentRepo.GetByID(ctx, documentID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dto.ErrorResponse(
+			"DOCUMENT_NOT_FOUND",
+			"KYC document not found",
+		))
+		return
+	}
+
+	// Check if already approved
+	if doc.Status == model.KYCDocumentStatusApproved {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+			"DOCUMENT_ALREADY_APPROVED",
+			"Document is already approved",
+		))
+		return
+	}
+
+	// Update document status
+	doc.Status = model.KYCDocumentStatusApproved
+	doc.ReviewedBy.UUID = parseUUIDOrNil(req.ApprovedBy)
+	doc.ReviewedBy.Valid = true
+	doc.ReviewedAt.Time = time.Now()
+	doc.ReviewedAt.Valid = true
+
+	if req.Notes != "" {
+		doc.ReviewerNotes.String = req.Notes
+		doc.ReviewerNotes.Valid = true
+	}
+
+	err = h.kycDocumentRepo.Update(ctx, doc)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
+			"APPROVAL_FAILED",
+			"Failed to approve document",
+		))
+		return
+	}
+
+	response := dto.APIResponse{
+		Data: gin.H{
+			"document_id": documentIDStr,
+			"status":      string(doc.Status),
+			"reviewed_by": req.ApprovedBy,
+			"reviewed_at": doc.ReviewedAt.Time,
+			"message":     "KYC document approved successfully",
+		},
+		Timestamp: time.Now(),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// RejectKYCDocument rejects a KYC document
+// POST /admin/v1/compliance/kyc-documents/:id/reject
+func (h *AdminHandler) RejectKYCDocument(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	documentIDStr := c.Param("id")
+	documentID, err := parseUUID(documentIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+			"INVALID_DOCUMENT_ID",
+			"Invalid document ID format",
+		))
+		return
+	}
+
+	var req dto.RejectKYCDocumentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponseWithDetails(
+			"INVALID_REQUEST",
+			"Invalid request body",
+			fmt.Sprintf("%v", err),
+		))
+		return
+	}
+
+	// Get document
+	doc, err := h.kycDocumentRepo.GetByID(ctx, documentID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dto.ErrorResponse(
+			"DOCUMENT_NOT_FOUND",
+			"KYC document not found",
+		))
+		return
+	}
+
+	// Update document status
+	doc.Status = model.KYCDocumentStatusRejected
+	doc.ReviewedBy.UUID = parseUUIDOrNil(req.RejectedBy)
+	doc.ReviewedBy.Valid = true
+	doc.ReviewedAt.Time = time.Now()
+	doc.ReviewedAt.Valid = true
+	doc.ReviewerNotes.String = req.Reason
+	doc.ReviewerNotes.Valid = true
+
+	err = h.kycDocumentRepo.Update(ctx, doc)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
+			"REJECTION_FAILED",
+			"Failed to reject document",
+		))
+		return
+	}
+
+	response := dto.APIResponse{
+		Data: gin.H{
+			"document_id":      documentIDStr,
+			"status":           string(doc.Status),
+			"reviewed_by":      req.RejectedBy,
+			"reviewed_at":      doc.ReviewedAt.Time,
+			"rejection_reason": req.Reason,
+			"message":          "KYC document rejected successfully",
+		},
+		Timestamp: time.Now(),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// UpgradeMerchantTier upgrades a merchant's KYC tier
+// POST /admin/v1/compliance/merchants/:id/upgrade-tier
+func (h *AdminHandler) UpgradeMerchantTier(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	merchantID := c.Param("id")
+	if merchantID == "" {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+			"INVALID_MERCHANT_ID",
+			"Merchant ID is required",
+		))
+		return
+	}
+
+	var req dto.UpgradeMerchantTierRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponseWithDetails(
+			"INVALID_REQUEST",
+			"Invalid request body",
+			fmt.Sprintf("%v", err),
+		))
+		return
+	}
+
+	// Upgrade tier using compliance service
+	err := h.complianceService.UpgradeKYCTier(ctx, merchantID, req.Tier)
+	if err != nil {
+		if errors.Is(err, service.ErrInsufficientKYCDocuments) {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+				"INSUFFICIENT_KYC_DOCUMENTS",
+				err.Error(),
+			))
+			return
+		}
+		if errors.Is(err, service.ErrKYCTierUpgradeNotAllowed) {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+				"TIER_UPGRADE_NOT_ALLOWED",
+				err.Error(),
+			))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
+			"TIER_UPGRADE_FAILED",
+			"Failed to upgrade merchant tier",
+		))
+		return
+	}
+
+	// Get updated merchant
+	merchant, _ := h.merchantRepo.GetByID(merchantID)
+
+	response := dto.APIResponse{
+		Data: gin.H{
+			"merchant_id":       merchantID,
+			"kyc_tier":          merchant.KYCTier,
+			"monthly_limit_usd": merchant.MonthlyLimitUSD,
+			"message":           "Merchant tier upgraded successfully",
+		},
+		Timestamp: time.Now(),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetComplianceMetrics retrieves compliance metrics for a merchant
+// GET /admin/v1/compliance/merchants/:id/metrics
+func (h *AdminHandler) GetComplianceMetrics(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	merchantID := c.Param("id")
+	if merchantID == "" {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(
+			"INVALID_MERCHANT_ID",
+			"Merchant ID is required",
+		))
+		return
+	}
+
+	// Get compliance metrics from service
+	metrics, err := h.complianceService.GetComplianceMetrics(ctx, merchantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
+			"FAILED_TO_GET_METRICS",
+			"Failed to retrieve compliance metrics",
+		))
+		return
+	}
+
+	// Convert to DTO
+	response := dto.APIResponse{
+		Data: dto.GetComplianceMetricsResponse{
+			MerchantID:             metrics.MerchantID,
+			KYCTier:                metrics.KYCTier,
+			MonthlyLimitUSD:        metrics.MonthlyLimitUSD,
+			MonthlyVolumeUSD:       metrics.MonthlyVolumeUSD,
+			RemainingLimitUSD:      metrics.RemainingLimitUSD,
+			UtilizationPercent:     metrics.UtilizationPercent,
+			TravelRuleTransactions: metrics.TravelRuleTransactions,
+			TotalTransactions:      metrics.TotalTransactions,
+			LastScreeningDate:      metrics.LastScreeningDate,
+		},
+		Timestamp: time.Now(),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// Helper functions
+
+// parseUUID parses a UUID string
+func parseUUID(s string) (uuid.UUID, error) {
+	return uuid.Parse(s)
+}
+
+// parseUUIDOrNil parses a UUID string or returns a nil UUID
+func parseUUIDOrNil(s string) uuid.UUID {
+	id, _ := uuid.Parse(s)
+	return id
 }

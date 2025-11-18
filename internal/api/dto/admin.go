@@ -348,3 +348,91 @@ func PayoutToListItem(payout *model.Payout, merchantName string) *PayoutListItem
 		RequestedAt:  payout.CreatedAt,
 	}
 }
+
+// Admin Compliance Management DTOs
+
+// GetTravelRuleDataQuery represents query parameters for Travel Rule data
+type GetTravelRuleDataQuery struct {
+	StartDate string `form:"start_date" binding:"required" example:"2025-11-01"`
+	EndDate   string `form:"end_date" binding:"required" example:"2025-11-17"`
+	Country   string `form:"country" binding:"omitempty" example:"VN"` // ISO 3166-1 alpha-2
+	Limit     int    `form:"limit" binding:"omitempty,min=1,max=100" example:"20"`
+	Offset    int    `form:"offset" binding:"omitempty,min=0" example:"0"`
+}
+
+// TravelRuleDataItem represents a Travel Rule data item
+type TravelRuleDataItem struct {
+	ID                  string          `json:"id"`
+	PaymentID           string          `json:"payment_id"`
+	PayerFullName       string          `json:"payer_full_name"`
+	PayerWalletAddress  string          `json:"payer_wallet_address"`
+	PayerCountry        string          `json:"payer_country"`
+	PayerIDDocument     *string         `json:"payer_id_document,omitempty"`
+	MerchantFullName    string          `json:"merchant_full_name"`
+	MerchantCountry     string          `json:"merchant_country"`
+	TransactionAmount   decimal.Decimal `json:"transaction_amount"`
+	TransactionCurrency string          `json:"transaction_currency"`
+	CreatedAt           time.Time       `json:"created_at"`
+}
+
+// GetTravelRuleDataResponse represents the response for Travel Rule data
+type GetTravelRuleDataResponse struct {
+	Data   []TravelRuleDataItem `json:"data"`
+	Total  int                  `json:"total"`
+	Limit  int                  `json:"limit"`
+	Offset int                  `json:"offset"`
+}
+
+// ApproveKYCDocumentRequest represents a request to approve a KYC document
+type ApproveKYCDocumentRequest struct {
+	ApprovedBy string `json:"approved_by" binding:"required" example:"admin@paymentgateway.com"`
+	Notes      string `json:"notes,omitempty" validate:"omitempty,max=500"`
+}
+
+// RejectKYCDocumentRequest represents a request to reject a KYC document
+type RejectKYCDocumentRequest struct {
+	RejectedBy string `json:"rejected_by" binding:"required" example:"admin@paymentgateway.com"`
+	Reason     string `json:"reason" binding:"required,max=500" example:"Document is not clear"`
+}
+
+// UpgradeMerchantTierRequest represents a request to upgrade a merchant's KYC tier
+type UpgradeMerchantTierRequest struct {
+	Tier string `json:"tier" binding:"required,oneof=tier1 tier2 tier3" example:"tier2"`
+}
+
+// GetComplianceMetricsResponse represents compliance metrics for a merchant
+type GetComplianceMetricsResponse struct {
+	MerchantID             string          `json:"merchant_id"`
+	KYCTier                string          `json:"kyc_tier"`
+	MonthlyLimitUSD        decimal.Decimal `json:"monthly_limit_usd"`
+	MonthlyVolumeUSD       decimal.Decimal `json:"monthly_volume_usd"`
+	RemainingLimitUSD      decimal.Decimal `json:"remaining_limit_usd"`
+	UtilizationPercent     float64         `json:"utilization_percent"`
+	TravelRuleTransactions int64           `json:"travel_rule_transactions"`
+	TotalTransactions      int64           `json:"total_transactions"`
+	LastScreeningDate      *time.Time      `json:"last_screening_date,omitempty"`
+}
+
+// TravelRuleDataToListItem converts a model.TravelRuleData to TravelRuleDataItem
+func TravelRuleDataToListItem(data *model.TravelRuleData) TravelRuleDataItem {
+	item := TravelRuleDataItem{
+		ID:                  data.ID.String(),
+		PaymentID:           data.PaymentID,
+		PayerFullName:       data.PayerFullName,
+		PayerWalletAddress:  data.PayerWalletAddress,
+		PayerCountry:        data.PayerCountry,
+		MerchantFullName:    data.MerchantFullName,
+		MerchantCountry:     data.MerchantCountry,
+		TransactionAmount:   data.TransactionAmount,
+		TransactionCurrency: data.TransactionCurrency,
+		CreatedAt:           data.CreatedAt,
+	}
+
+	// Handle optional PayerIDDocument
+	if data.PayerIDDocument.Valid {
+		idDoc := data.PayerIDDocument.String
+		item.PayerIDDocument = &idDoc
+	}
+
+	return item
+}
