@@ -157,7 +157,7 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	payoutRepo := s.initPayoutRepository()
 	balanceRepo := s.initBalanceRepository()
 	ledgerRepo := s.initLedgerRepository()
-	auditRepo := s.initAuditLogRepository()
+	auditRepo := s.initAuditRepository()
 	travelRuleRepo := s.initTravelRuleRepository()
 	kycDocumentRepo := s.initKYCDocumentRepository()
 
@@ -455,8 +455,8 @@ func (s *Server) initMerchantService(
 	)
 }
 
-func (s *Server) initAuditLogRepository() *repository.AuditLogRepository {
-	return repository.NewAuditLogRepository(s.db, logger.GetLogger())
+func (s *Server) initAuditRepository() *repository.AuditRepository {
+	return repository.NewAuditRepository(s.db)
 }
 
 func (s *Server) initTravelRuleRepository() *repository.TravelRuleRepository {
@@ -468,7 +468,7 @@ func (s *Server) initKYCDocumentRepository() *repository.KYCDocumentRepository {
 }
 
 func (s *Server) initAMLService(
-	auditRepo *repository.AuditLogRepository,
+	auditRepo *repository.AuditRepository,
 	paymentRepo *repository.PaymentRepository,
 ) service.AMLService {
 	// Initialize TRM Labs client (with mock for development)
@@ -511,7 +511,7 @@ func (s *Server) initComplianceService(
 	travelRuleRepo *repository.TravelRuleRepository,
 	kycDocumentRepo *repository.KYCDocumentRepository,
 	paymentRepo *repository.PaymentRepository,
-	auditRepo *repository.AuditLogRepository,
+	auditRepo *repository.AuditRepository,
 ) service.ComplianceService {
 	return service.NewComplianceService(
 		amlService,

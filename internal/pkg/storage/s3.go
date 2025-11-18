@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -245,11 +244,9 @@ func (s *S3Storage) SetLifecyclePolicy(ctx context.Context, bucket string, daysT
 		LifecycleConfiguration: &types.BucketLifecycleConfiguration{
 			Rules: []types.LifecycleRule{
 				{
-					Id:     aws.String("archive-to-glacier"),
+					ID:     aws.String("archive-to-glacier"),  // Fixed: ID instead of Id
+					Prefix: aws.String("audit-logs/"),          // Fixed: Use Prefix directly (deprecated but simpler)
 					Status: types.ExpirationStatusEnabled,
-					Filter: &types.LifecycleRuleFilterMemberPrefix{
-						Value: "audit-logs/",
-					},
 					Transitions: []types.Transition{
 						{
 							Days:         aws.Int32(int32(daysToGlacier)),

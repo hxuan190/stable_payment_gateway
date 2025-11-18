@@ -138,13 +138,13 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 	}
 
 	// Check if Travel Rule data is required (transactions > $1000 USD)
-	// Convert VND to USD using payment's exchange rate
+	// Use AmountCrypto as USD equivalent since we use USDT/USDC (USD-pegged stablecoins)
 	travelRuleThreshold := decimal.NewFromInt(1000)
-	if payment.AmountUSD.GreaterThan(travelRuleThreshold) {
+	if payment.AmountCrypto.GreaterThan(travelRuleThreshold) {
 		if req.TravelRule == nil {
 			logger.WithContext(ctx).WithFields(logrus.Fields{
 				"payment_id": payment.ID,
-				"amount_usd": payment.AmountUSD.String(),
+				"amount_crypto": payment.AmountCrypto.String(),
 			}).Warn("Travel Rule data required but not provided")
 
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse(
@@ -162,7 +162,7 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 			PayerCountry:        req.TravelRule.PayerCountry,
 			MerchantFullName:    merchant.BusinessName,
 			MerchantCountry:     "VN", // Default to Vietnam for now
-			TransactionAmount:   payment.AmountUSD,
+			TransactionAmount:   payment.AmountCrypto,
 			TransactionCurrency: "USD",
 		}
 

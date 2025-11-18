@@ -47,14 +47,25 @@ type KYCDocumentItem struct {
 
 // KYCDocumentToResponse converts a model.KYCDocument to UploadKYCDocumentResponse
 func KYCDocumentToResponse(doc *model.KYCDocument) UploadKYCDocumentResponse {
-	fileSizeKB := float64(doc.FileSizeBytes) / 1024.0
+	// Handle nullable FileSizeBytes
+	var fileSizeKB float64
+	if doc.FileSizeBytes.Valid {
+		fileSizeKB = float64(doc.FileSizeBytes.Int64) / 1024.0
+	}
+
+	// Handle nullable MimeType
+	mimeType := ""
+	if doc.MimeType.Valid {
+		mimeType = doc.MimeType.String
+	}
+
 	return UploadKYCDocumentResponse{
-		DocumentID:   doc.ID.String(),
-		MerchantID:   doc.MerchantID.String(),
+		DocumentID:   doc.ID,              // ID is already a string
+		MerchantID:   doc.MerchantID,      // MerchantID is already a string
 		DocumentType: string(doc.DocumentType),
 		FileURL:      doc.FileURL,
 		FileSizeKB:   fileSizeKB,
-		MimeType:     doc.MimeType,
+		MimeType:     mimeType,
 		Status:       string(doc.Status),
 		CreatedAt:    doc.CreatedAt,
 	}
@@ -62,13 +73,24 @@ func KYCDocumentToResponse(doc *model.KYCDocument) UploadKYCDocumentResponse {
 
 // KYCDocumentToListItem converts a model.KYCDocument to KYCDocumentItem
 func KYCDocumentToListItem(doc *model.KYCDocument) KYCDocumentItem {
-	fileSizeKB := float64(doc.FileSizeBytes) / 1024.0
+	// Handle nullable FileSizeBytes
+	var fileSizeKB float64
+	if doc.FileSizeBytes.Valid {
+		fileSizeKB = float64(doc.FileSizeBytes.Int64) / 1024.0
+	}
+
+	// Handle nullable MimeType
+	mimeType := ""
+	if doc.MimeType.Valid {
+		mimeType = doc.MimeType.String
+	}
+
 	item := KYCDocumentItem{
-		DocumentID:   doc.ID.String(),
+		DocumentID:   doc.ID,              // ID is already a string
 		DocumentType: string(doc.DocumentType),
 		FileURL:      doc.FileURL,
 		FileSizeKB:   fileSizeKB,
-		MimeType:     doc.MimeType,
+		MimeType:     mimeType,
 		Status:       string(doc.Status),
 		CreatedAt:    doc.CreatedAt,
 		UpdatedAt:    doc.UpdatedAt,
@@ -76,7 +98,7 @@ func KYCDocumentToListItem(doc *model.KYCDocument) KYCDocumentItem {
 
 	// Handle optional fields
 	if doc.ReviewedBy.Valid {
-		reviewedBy := doc.ReviewedBy.UUID.String()
+		reviewedBy := doc.ReviewedBy.String  // ReviewedBy is sql.NullString, not UUID
 		item.ReviewedBy = &reviewedBy
 	}
 	if doc.ReviewedAt.Valid {

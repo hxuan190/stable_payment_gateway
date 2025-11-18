@@ -60,6 +60,7 @@ type PaymentRepository interface {
 // MerchantRepository defines the interface for merchant data access
 type MerchantRepository interface {
 	GetByID(id string) (*model.Merchant, error)
+	Update(merchant *model.Merchant) error
 }
 
 // ExchangeRateProvider defines the interface for getting exchange rates
