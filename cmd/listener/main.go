@@ -16,6 +16,7 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/service"
 )
@@ -47,14 +48,22 @@ func main() {
 
 	// Initialize repositories
 	balanceRepo := repository.NewWalletBalanceRepository(db)
+	paymentRepo := repository.NewPaymentRepository(db, appLogger)
+	merchantRepo := repository.NewMerchantRepository(db, appLogger)
+	auditRepo := repository.NewAuditLogRepository(db, appLogger)
 
-	// Initialize notification service
+	// Initialize services
 	notificationService := service.NewNotificationService(service.NotificationServiceConfig{
 		Logger:      appLogger,
 		HTTPTimeout: 30 * time.Second,
 		EmailSender: cfg.Email.FromEmail,
 		EmailAPIKey: cfg.Email.APIKey,
 	})
+
+	// Initialize AML service for compliance screening
+	amlService := initializeAMLService(cfg, auditRepo, paymentRepo, appLogger)
+
+	appLogger.Info("AML screening service initialized")
 
 	// Initialize Solana wallet
 	if cfg.Solana.WalletPrivateKey == "" {
@@ -76,9 +85,18 @@ func main() {
 
 	appLogger.Info("Wallet health check passed")
 
-	// TODO: Initialize blockchain clients (Solana, BSC)
-	// TODO: Initialize payment service
-	// TODO: Start blockchain listeners
+	// Initialize payment service for transaction confirmation
+	paymentService := initializePaymentService(cfg, paymentRepo, merchantRepo, solanaWallet, appLogger)
+
+	// Create payment confirmation callback with AML screening
+	confirmationCallback := createPaymentConfirmationCallback(
+		paymentService,
+		amlService,
+		appLogger,
+	)
+
+	// TODO: Start Solana blockchain listener with confirmation callback
+	// TODO: Start BSC blockchain listener when BSC support is added
 
 	// Start wallet balance monitor
 	monitorConfig := solana.WalletMonitorConfig{
@@ -128,4 +146,182 @@ func getNetworkFromString(network string) model.Network {
 	default:
 		return model.NetworkDevnet
 	}
+}
+
+// initializeAMLService creates an AML service instance
+func initializeAMLService(
+	cfg *config.Config,
+	auditRepo *repository.AuditLogRepository,
+	paymentRepo *repository.PaymentRepository,
+	appLogger *logrus.Logger,
+) service.AMLService {
+	// Initialize TRM Labs client (or mock if no API key)
+	var trmClient service.TRMLabsClient
+
+	if cfg.TRM.APIKey != "" && cfg.TRM.BaseURL != "" {
+		appLogger.Info("Initializing TRM Labs client (production mode)")
+		client, err := initTRMLabsClient(cfg.TRM.APIKey, cfg.TRM.BaseURL)
+		if err != nil {
+			appLogger.WithError(err).Warn("Failed to initialize TRM Labs client, using mock")
+			trmClient = createMockTRMClient()
+		} else {
+			trmClient = client
+		}
+	} else {
+		appLogger.Info("TRM Labs API key not configured, using mock client")
+		trmClient = createMockTRMClient()
+	}
+
+	return service.NewAMLService(
+		trmClient,
+		auditRepo,
+		paymentRepo,
+		appLogger,
+	)
+}
+
+// initializePaymentService creates a payment service instance
+func initializePaymentService(
+	cfg *config.Config,
+	paymentRepo *repository.PaymentRepository,
+	merchantRepo *repository.MerchantRepository,
+	solanaWallet *solana.Wallet,
+	appLogger *logrus.Logger,
+) *service.PaymentService {
+	// For the listener, we don't need exchange rate service or compliance service
+	// We only need to confirm payments
+	return service.NewPaymentService(
+		paymentRepo,
+		merchantRepo,
+		nil, // No exchange rate service needed for confirmation
+		nil, // No compliance service needed (already checked during creation)
+		service.PaymentServiceConfig{
+			DefaultChain:    model.ChainSolana,
+			DefaultCurrency: "USDT",
+			WalletAddress:   solanaWallet.GetAddress(),
+			FeePercentage:   0.01,
+			ExpiryMinutes:   30,
+			RedisClient:     nil, // TODO: Add Redis if available
+		},
+		appLogger,
+	)
+}
+
+// createPaymentConfirmationCallback creates a callback function with AML screening
+func createPaymentConfirmationCallback(
+	paymentService *service.PaymentService,
+	amlService service.AMLService,
+	appLogger *logrus.Logger,
+) func(paymentID string, txHash string, amount decimal.Decimal, tokenMint string) error {
+	return func(paymentID string, txHash string, amount decimal.Decimal, tokenMint string) error {
+		ctx := context.Background()
+
+		appLogger.WithFields(logrus.Fields{
+			"payment_id": paymentID,
+			"tx_hash":    txHash,
+			"amount":     amount,
+			"token":      tokenMint,
+		}).Info("Processing payment confirmation")
+
+		// Get payment to extract sender address
+		payment, err := paymentService.GetPaymentByID(ctx, paymentID)
+		if err != nil {
+			appLogger.WithError(err).Error("Failed to get payment for AML screening")
+			return fmt.Errorf("failed to get payment: %w", err)
+		}
+
+		// Extract from_address from payment (it will be set by blockchain parser)
+		// For now, we'll screen after confirmation when from_address is available
+		// In a full implementation, the listener would pass from_address to this callback
+
+		// Create confirmation request
+		confirmReq := service.ConfirmPaymentRequest{
+			PaymentID:     paymentID,
+			TxHash:        txHash,
+			ActualAmount:  amount,
+			Confirmations: 1, // Solana finalized = sufficient
+			FromAddress:   "", // Will be extracted from transaction
+		}
+
+		// Confirm the payment
+		confirmedPayment, err := paymentService.ConfirmPayment(ctx, confirmReq)
+		if err != nil {
+			appLogger.WithError(err).Error("Payment confirmation failed")
+			return fmt.Errorf("payment confirmation failed: %w", err)
+		}
+
+		// AML SCREENING: Screen the sender address after payment is confirmed
+		if confirmedPayment.FromAddress.Valid && confirmedPayment.FromAddress.String != "" {
+			fromAddress := confirmedPayment.FromAddress.String
+
+			appLogger.WithFields(logrus.Fields{
+				"payment_id":   paymentID,
+				"from_address": fromAddress,
+				"chain":        "solana",
+			}).Info("Screening sender address for AML compliance")
+
+			// Screen the wallet address
+			result, err := amlService.ScreenWalletAddress(ctx, fromAddress, "solana")
+			if err != nil {
+				appLogger.WithError(err).Warn("AML screening failed (non-fatal)")
+				// Don't fail payment if AML screening service has issues
+				// Log the error and continue
+			} else {
+				// Record screening result
+				err = amlService.RecordScreeningResult(ctx, payment.IDAsUUID(), result)
+				if err != nil {
+					appLogger.WithError(err).Warn("Failed to record AML screening result")
+				}
+
+				// Check if address is sanctioned or high-risk
+				if result.IsSanctioned {
+					appLogger.WithFields(logrus.Fields{
+						"payment_id":   paymentID,
+						"from_address": fromAddress,
+						"risk_score":   result.RiskScore,
+						"flags":        result.Flags,
+					}).Error("SANCTIONED ADDRESS DETECTED - Manual review required")
+
+					// TODO: Flag payment for manual review
+					// TODO: Send alert to compliance team
+					// TODO: Consider reversing payment or freezing funds
+
+					// For now, log the incident
+					appLogger.Warn("Payment from sanctioned address was confirmed - immediate review required")
+				} else if result.RiskScore >= 80 {
+					appLogger.WithFields(logrus.Fields{
+						"payment_id":   paymentID,
+						"from_address": fromAddress,
+						"risk_score":   result.RiskScore,
+						"flags":        result.Flags,
+					}).Warn("HIGH-RISK ADDRESS DETECTED - Review recommended")
+
+					// TODO: Flag for review
+				} else {
+					appLogger.WithFields(logrus.Fields{
+						"payment_id":   paymentID,
+						"from_address": fromAddress,
+						"risk_score":   result.RiskScore,
+					}).Info("AML screening passed - clean address")
+				}
+			}
+		}
+
+		appLogger.WithField("payment_id", paymentID).Info("Payment confirmed successfully")
+		return nil
+	}
+}
+
+// initTRMLabsClient initializes a real TRM Labs client
+func initTRMLabsClient(apiKey, baseURL string) (service.TRMLabsClient, error) {
+	client, err := trmlabs.NewClient(apiKey, baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create TRM Labs client: %w", err)
+	}
+	return client, nil
+}
+
+// createMockTRMClient creates a mock TRM Labs client for development
+func createMockTRMClient() service.TRMLabsClient {
+	return trmlabs.NewMockClient()
 }
