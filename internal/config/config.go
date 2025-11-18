@@ -160,9 +160,9 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	trmConfig := TRMConfig{
-		APIKey:  getEnv("TRM_API_KEY", ""),
-		BaseURL: getEnv("TRM_BASE_URL", "https://api.trmlabs.com"),
-		Timeout: getEnvAsInt("TRM_TIMEOUT", 30),
+		APIKey:  getEnv("TRM_LABS_API_KEY", ""),
+		BaseURL: getEnv("TRM_LABS_BASE_URL", "https://api.trmlabs.com/public/v1"),
+		Timeout: getEnvAsInt("TRM_LABS_TIMEOUT", 30),
 	}
 
 	config := &Config{
