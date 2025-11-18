@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -192,28 +193,20 @@ func (h *KYCHandler) UploadDocument(c *gin.Context) {
 	}
 
 	// Create database record
-	merchantUUID, err := uuid.Parse(merchant.ID)
-	if err != nil {
-		logger.WithContext(ctx).WithFields(logrus.Fields{
-			"error":       err.Error(),
-			"merchant_id": merchant.ID,
-		}).Error("Invalid merchant ID format")
-
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
-			"INTERNAL_ERROR",
-			"Invalid merchant ID",
-		))
-		return
-	}
-
 	kycDoc := &model.KYCDocument{
-		ID:            uuid.New(),
-		MerchantID:    merchantUUID,
-		DocumentType:  model.KYCDocumentType(req.DocumentType),
-		FileURL:       fileURL,
-		FileSizeBytes: file.Size,
-		MimeType:      mimeType,
-		Status:        model.KYCDocumentStatusPending,
+		ID:         uuid.New().String(),
+		MerchantID: merchant.ID,
+		DocumentType: req.DocumentType,
+		FileURL:    fileURL,
+		FileSizeBytes: sql.NullInt64{
+			Int64: file.Size,
+			Valid: true,
+		},
+		MimeType: sql.NullString{
+			String: mimeType,
+			Valid:  true,
+		},
+		Status: model.KYCDocumentStatusPending,
 	}
 
 	err = h.kycDocRepo.Create(ctx, kycDoc)
@@ -237,7 +230,7 @@ func (h *KYCHandler) UploadDocument(c *gin.Context) {
 	response := dto.KYCDocumentToResponse(kycDoc)
 
 	logger.WithContext(ctx).WithFields(logrus.Fields{
-		"document_id":   kycDoc.ID.String(),
+		"document_id":   kycDoc.ID,
 		"merchant_id":   merchant.ID,
 		"document_type": req.DocumentType,
 		"file_size":     file.Size,
@@ -354,11 +347,11 @@ func (h *KYCHandler) DeleteDocument(c *gin.Context) {
 	}
 
 	// Verify document belongs to this merchant
-	if doc.MerchantID.String() != merchant.ID {
+	if doc.MerchantID != merchant.ID {
 		logger.WithContext(ctx).WithFields(logrus.Fields{
 			"merchant_id":         merchant.ID,
 			"document_id":         documentIDStr,
-			"document_merchant_id": doc.MerchantID.String(),
+			"document_merchant_id": doc.MerchantID,
 		}).Warn("Merchant attempted to delete document from different merchant")
 
 		c.JSON(http.StatusForbidden, dto.ErrorResponse("FORBIDDEN", "Access denied to this document"))

@@ -119,20 +119,23 @@ func (s *AdminServer) corsMiddleware() gin.HandlerFunc {
 
 // setupRoutes configures all admin API routes
 func (s *AdminServer) setupRoutes(router *gin.Engine) {
+	// Initialize logger for repositories that need it
+	repoLogger := &logger.Logger{}
+
 	// Initialize repositories
-	merchantRepo := repository.NewMerchantRepository(s.db, logger.New())
-	paymentRepo := repository.NewPaymentRepository(s.db, logger.New())
-	payoutRepo := repository.NewPayoutRepository(s.db, logger.New())
-	balanceRepo := repository.NewBalanceRepository(s.db, logger.New())
-	ledgerRepo := repository.NewLedgerRepository(s.db, logger.New())
-	auditRepo := repository.NewAuditRepository(s.db, logger.New())
-	blockchainTxRepo := repository.NewBlockchainTxRepository(s.db, logger.New())
-	walletBalanceRepo := repository.NewWalletBalanceRepository(s.db, logger.New())
-	travelRuleRepo := repository.NewTravelRuleRepository(s.db, logger.New())
-	kycDocumentRepo := repository.NewKYCDocumentRepository(s.db, logger.New())
+	merchantRepo := repository.NewMerchantRepository(s.db)
+	paymentRepo := repository.NewPaymentRepository(s.db)
+	payoutRepo := repository.NewPayoutRepository(s.db)
+	balanceRepo := repository.NewBalanceRepository(s.db)
+	ledgerRepo := repository.NewLedgerRepository(s.db)
+	auditRepo := repository.NewAuditRepository(s.db)
+	blockchainTxRepo := repository.NewBlockchainTxRepository(s.db)
+	walletBalanceRepo := repository.NewWalletBalanceRepository(s.db)
+	travelRuleRepo := repository.NewTravelRuleRepository(s.db, repoLogger)
+	kycDocumentRepo := repository.NewKYCDocumentRepository(s.db, repoLogger)
 
 	// Initialize TRM Labs client (for AML screening)
-	var trmClient trmlabs.Client
+	var trmClient service.TRMLabsClient
 	if s.config.TRMLabs.APIKey != "" {
 		trmClient = trmlabs.NewClient(s.config.TRMLabs.APIKey, s.config.TRMLabs.BaseURL)
 	} else {
@@ -141,44 +144,54 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 	}
 
 	// Initialize storage service
-	var storageService storage.Storage
+	var storageService storage.StorageService
 	if s.config.AWS.S3Bucket != "" {
-		storageService = storage.NewS3Storage(
-			s.config.AWS.Region,
-			s.config.AWS.S3Bucket,
-			s.config.AWS.AccessKeyID,
-			s.config.AWS.SecretAccessKey,
-		)
+		s3Cfg := storage.S3Config{
+			Region:      s.config.AWS.Region,
+			KYCBucket:   s.config.AWS.S3Bucket,
+			AuditBucket: s.config.AWS.S3Bucket, // Using same bucket for now
+			Encryption:  "AES256",
+		}
+		ctx := context.Background()
+		var err error
+		storageService, err = storage.NewS3Storage(ctx, s3Cfg)
+		if err != nil {
+			logger.Error("Failed to initialize S3 storage", err)
+			storageService = storage.NewMockStorage() // Fallback to mock
+		}
 	} else {
 		storageService = storage.NewMockStorage() // Use mock for development
 		logger.Warn("S3 not configured, using mock storage")
 	}
 
-	// Initialize exchange rate service
+	// Initialize exchange rate service with correct parameters
 	exchangeRateService := service.NewExchangeRateService(
-		s.config.ExchangeRate.Provider,
-		s.config.ExchangeRate.APIKey,
+		s.config.ExchangeRate.PrimaryAPI,
+		s.config.ExchangeRate.SecondaryAPI,
+		time.Duration(s.config.ExchangeRate.CacheTTL)*time.Second,
+		time.Duration(s.config.ExchangeRate.Timeout)*time.Second,
 		s.cache,
-		logger.New(),
+		logrus.New(), // Use logrus logger
 	)
 
-	// Initialize services
-	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, auditRepo, logger.New())
+	// Initialize services with logrus logger
+	svcLogger := logrus.New()
+	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, auditRepo, svcLogger)
 	notificationService := service.NewNotificationService(
 		s.config.Email.FromEmail,
 		s.config.Email.SMTPHost,
 		s.config.Email.SMTPPort,
 		s.config.Email.SMTPUsername,
 		s.config.Email.SMTPPassword,
-		logger.New(),
+		svcLogger,
 	)
-	merchantService := service.NewMerchantService(merchantRepo, balanceRepo, auditRepo, logger.New())
+	merchantService := service.NewMerchantService(merchantRepo, balanceRepo, auditRepo, svcLogger)
 	complianceService := service.NewComplianceService(
 		trmClient,
 		travelRuleRepo,
 		kycDocumentRepo,
 		merchantRepo,
-		logger.New(),
+		svcLogger,
 	)
 	payoutService := service.NewPayoutService(
 		payoutRepo,
@@ -186,7 +199,7 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 		ledgerService,
 		notificationService,
 		auditRepo,
-		logger.New(),
+		svcLogger,
 	)
 
 	// Health check handler (no auth required)

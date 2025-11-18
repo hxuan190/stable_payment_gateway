@@ -281,7 +281,6 @@ func (h *AdminHandler) RejectKYC(c *gin.Context) {
 		Data: gin.H{
 			"merchant_id":      merchant.ID,
 			"status":           string(merchant.KYCStatus),
-			"rejected_at":      merchant.KYCRejectedAt,
 			"rejection_reason": merchant.KYCRejectionReason,
 			"message":          "KYC rejected successfully",
 		},
@@ -519,7 +518,6 @@ func (h *AdminHandler) RejectPayout(c *gin.Context) {
 		Data: gin.H{
 			"payout_id":        payoutID,
 			"status":           string(payout.Status),
-			"rejected_at":      payout.RejectedAt,
 			"rejection_reason": payout.RejectionReason,
 			"message":          "Payout rejected successfully",
 		},
@@ -560,7 +558,7 @@ func (h *AdminHandler) CompletePayout(c *gin.Context) {
 			))
 			return
 		}
-		if errors.Is(err, service.ErrPayoutCannotBeCompleted) {
+		if errors.Is(err, service.ErrPayoutInvalidStatus) {
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse(
 				"PAYOUT_CANNOT_BE_COMPLETED",
 				err.Error(),
@@ -582,7 +580,7 @@ func (h *AdminHandler) CompletePayout(c *gin.Context) {
 		Data: gin.H{
 			"payout_id":             payoutID,
 			"status":                string(payout.Status),
-			"completed_at":          payout.CompletedAt,
+			"completed_at":          payout.CompletionDate,
 			"bank_reference_number": payout.BankReferenceNumber,
 			"processed_by":          payout.ProcessedBy,
 			"message":               "Payout completed successfully",
@@ -634,7 +632,7 @@ func (h *AdminHandler) GetStats(c *gin.Context) {
 	pendingPayouts := 0
 
 	for _, p := range allPayouts {
-		totalPayoutsVolume = totalPayoutsVolume.Add(p.Amount)
+		totalPayoutsVolume = totalPayoutsVolume.Add(p.AmountVND)
 		if p.Status == model.PayoutStatusRequested || p.Status == model.PayoutStatusApproved {
 			pendingPayouts++
 		}
@@ -770,7 +768,7 @@ func (h *AdminHandler) GetTravelRuleData(c *gin.Context) {
 	}
 
 	if query.Country != "" {
-		filter.Country = &query.Country
+		filter.PayerCountry = query.Country
 	}
 
 	// Get Travel Rule data
@@ -893,7 +891,7 @@ func (h *AdminHandler) ApproveKYCDocument(c *gin.Context) {
 
 	// Update document status
 	doc.Status = model.KYCDocumentStatusApproved
-	doc.ReviewedBy.UUID = parseUUIDOrNil(req.ApprovedBy)
+	doc.ReviewedBy.String = req.ApprovedBy
 	doc.ReviewedBy.Valid = true
 	doc.ReviewedAt.Time = time.Now()
 	doc.ReviewedAt.Valid = true
@@ -963,7 +961,7 @@ func (h *AdminHandler) RejectKYCDocument(c *gin.Context) {
 
 	// Update document status
 	doc.Status = model.KYCDocumentStatusRejected
-	doc.ReviewedBy.UUID = parseUUIDOrNil(req.RejectedBy)
+	doc.ReviewedBy.String = req.RejectedBy
 	doc.ReviewedBy.Valid = true
 	doc.ReviewedAt.Time = time.Now()
 	doc.ReviewedAt.Valid = true
