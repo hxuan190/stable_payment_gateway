@@ -172,25 +172,31 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 			travelRuleData.PayerIDDocument.Valid = true
 		}
 
-		// Store Travel Rule data
-		err = h.complianceService.StoreTravelRuleData(ctx, travelRuleData)
-		if err != nil {
+		// Store Travel Rule data (if compliance service is available)
+		if h.complianceService != nil {
+			err = h.complianceService.StoreTravelRuleData(ctx, travelRuleData)
+			if err != nil {
+				logger.WithContext(ctx).WithFields(logrus.Fields{
+					"error":      err.Error(),
+					"payment_id": payment.ID,
+				}).Error("Failed to store Travel Rule data")
+
+				c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
+					"TRAVEL_RULE_ERROR",
+					"Failed to store Travel Rule data",
+				))
+				return
+			}
+
 			logger.WithContext(ctx).WithFields(logrus.Fields{
-				"error":      err.Error(),
+				"payment_id":    payment.ID,
+				"payer_country": req.TravelRule.PayerCountry,
+			}).Info("Travel Rule data stored successfully")
+		} else {
+			logger.WithContext(ctx).WithFields(logrus.Fields{
 				"payment_id": payment.ID,
-			}).Error("Failed to store Travel Rule data")
-
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
-				"TRAVEL_RULE_ERROR",
-				"Failed to store Travel Rule data",
-			))
-			return
+			}).Warn("Compliance service not available, Travel Rule data not stored")
 		}
-
-		logger.WithContext(ctx).WithFields(logrus.Fields{
-			"payment_id":    payment.ID,
-			"payer_country": req.TravelRule.PayerCountry,
-		}).Info("Travel Rule data stored successfully")
 	}
 
 	// Generate QR code
@@ -447,6 +453,51 @@ func (h *PaymentHandler) getPaymentURL(paymentID string) string {
 		return fmt.Sprintf("/pay/%s", paymentID)
 	}
 	return fmt.Sprintf("%s/pay/%s", h.baseURL, paymentID)
+}
+
+// GetPublicPaymentStatus handles GET /api/v1/public/payments/:id/status
+// @Summary Get public payment status
+// @Description Retrieve payment status for public access (no authentication required) - Payer Experience Layer
+// @Tags payments
+// @Accept json
+// @Produce json
+// @Param id path string true "Payment ID"
+// @Success 200 {object} dto.APIResponse{data=dto.PaymentStatusResponse}
+// @Failure 404 {object} dto.APIResponse
+// @Failure 500 {object} dto.APIResponse
+// @Router /api/v1/public/payments/{id}/status [get]
+func (h *PaymentHandler) GetPublicPaymentStatus(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Get payment ID from path parameter
+	paymentID := c.Param("id")
+	if paymentID == "" {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse("INVALID_REQUEST", "Payment ID is required"))
+		return
+	}
+
+	// Get payment
+	payment, err := h.paymentService.GetPaymentStatus(ctx, paymentID)
+	if err != nil {
+		logger.WithContext(ctx).WithFields(logrus.Fields{
+			"error":      err.Error(),
+			"payment_id": paymentID,
+		}).Error("Failed to get payment status")
+
+		statusCode, errCode, errMessage := h.mapServiceError(err)
+		c.JSON(statusCode, dto.ErrorResponse(errCode, errMessage))
+		return
+	}
+
+	// Convert to public status response (excludes merchant-sensitive information)
+	response := dto.PaymentToPublicStatusResponse(payment)
+
+	logger.WithContext(ctx).WithFields(logrus.Fields{
+		"payment_id": payment.ID,
+		"status":     payment.Status,
+	}).Debug("Public payment status retrieved successfully")
+
+	c.JSON(http.StatusOK, dto.SuccessResponse(response))
 }
 
 // mapServiceError maps service layer errors to HTTP status codes and error messages
