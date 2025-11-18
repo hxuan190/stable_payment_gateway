@@ -164,15 +164,17 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	// Initialize services
 	exchangeRateService := s.initExchangeRateService()
 	ledgerService := s.initLedgerService(ledgerRepo)
-	paymentService := s.initPaymentService(paymentRepo, merchantRepo, exchangeRateService)
-	payoutService := s.initPayoutService(payoutRepo, merchantRepo, balanceRepo, ledgerService)
 
 	// Initialize merchant service for admin
 	merchantService := s.initMerchantService(merchantRepo, balanceRepo)
 
-	// Initialize compliance services
+	// Initialize compliance services (must be before payment service)
 	amlService := s.initAMLService(auditRepo, paymentRepo)
 	complianceService := s.initComplianceService(amlService, merchantRepo, travelRuleRepo, kycDocumentRepo, paymentRepo, auditRepo)
+
+	// Initialize payment service with compliance
+	paymentService := s.initPaymentService(paymentRepo, merchantRepo, exchangeRateService, complianceService)
+	payoutService := s.initPayoutService(payoutRepo, merchantRepo, balanceRepo, ledgerService)
 
 	// Initialize handlers
 	// Use storage base URL or construct from API config
@@ -396,6 +398,7 @@ func (s *Server) initPaymentService(
 	paymentRepo *repository.PaymentRepository,
 	merchantRepo *repository.MerchantRepository,
 	exchangeRateService *service.ExchangeRateService,
+	complianceService service.ComplianceService,
 ) *service.PaymentService {
 	// Get Redis client if available
 	var redisClient *redis.Client
@@ -407,6 +410,7 @@ func (s *Server) initPaymentService(
 		paymentRepo,
 		merchantRepo,
 		exchangeRateService,
+		complianceService, // Pass compliance service for pre-payment validation
 		service.PaymentServiceConfig{
 			DefaultChain:    model.ChainSolana,
 			DefaultCurrency: "USDT",
