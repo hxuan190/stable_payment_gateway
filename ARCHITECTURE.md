@@ -45,9 +45,16 @@
 │  │  - Double-entry accounting                                  │     │
 │  │  - Balance management                                       │     │
 │  │  - Transaction log                                          │     │
-│  └────────────────────────────┬─────────────────────────────────┘     │
-│                               │                                      │
-│  ┌────────────────────────────┴─────────────────────────────────┐   │
+│  └──────────────────────────────────────────────────────────────┘     │
+│                                                                       │
+│  ┌───────────────────────────────────────────────────────────────┐   │
+│  │               AML Engine (Anti-Money Laundering)              │   │
+│  │  - Risk scoring        - Sanctions screening                 │   │
+│  │  - Txn monitoring      - Wallet screening                    │   │
+│  │  - Alert management    - Regulatory reporting                │   │
+│  └───────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│  ┌───────────────────────────────────────────────────────────────┐   │
 │  │               Notification Service                            │   │
 │  │  - Webhook dispatcher                                         │   │
 │  │  - Email notifications                                        │   │
@@ -92,9 +99,14 @@
 │  │                  │  │                  │  │                  │   │
 │  │ - Merchants      │  │ - Rate limit     │  │ - KYC docs       │   │
 │  │ - Payments       │  │ - Session        │  │ - Audit files    │   │
-│  │ - Payouts        │  │ - Cache          │  │ (S3/MinIO)       │   │
-│  │ - Ledger         │  │                  │  │                  │   │
+│  │ - Payouts        │  │ - Cache          │  │ - SAR reports    │   │
+│  │ - Ledger         │  │ - Wallet cache   │  │ (S3/MinIO)       │   │
 │  │ - Audit logs     │  │                  │  │                  │   │
+│  │ - AML tables     │  │                  │  │                  │   │
+│  │   • Risk scores  │  │                  │  │                  │   │
+│  │   • Alerts       │  │                  │  │                  │   │
+│  │   • Cases        │  │                  │  │                  │   │
+│  │   • Sanctions    │  │                  │  │                  │   │
 │  └──────────────────┘  └──────────────────┘  └──────────────────┘   │
 │                                                                        │
 └────────────────────────────────────────────────────────────────────────┘
@@ -294,6 +306,164 @@ class WebhookDispatcher {
 - Payout approved (merchant)
 - Daily settlement report (ops)
 - Failed transaction alerts (ops)
+
+---
+
+### 6. AML Engine (Anti-Money Laundering)
+
+**Responsibilities**
+- Customer risk scoring and assessment
+- Real-time transaction monitoring
+- Sanctions screening (OFAC, UN, EU lists)
+- Wallet risk analysis (crypto-specific)
+- Alert generation and management
+- Case management for investigations
+- Regulatory reporting (SAR, threshold reports)
+
+**Key Components**
+
+```typescript
+interface AMLEngine {
+  // Customer risk assessment
+  calculateCustomerRiskScore(merchant: Merchant): Promise<RiskScore>
+  screenSanctions(name: string, idNumber: string): Promise<SanctionsHit>
+
+  // Transaction monitoring
+  monitorTransaction(payment: Payment): Promise<MonitoringResult>
+  screenWallet(address: string, blockchain: string): Promise<WalletRisk>
+
+  // Alert management
+  createAlert(alert: Alert): Promise<void>
+  resolveAlert(alertId: string, resolution: Resolution): Promise<void>
+
+  // Reporting
+  generateSAR(caseId: string): Promise<Report>
+  generateThresholdReport(period: DateRange): Promise<Report>
+}
+
+interface RiskScore {
+  merchantId: string
+  riskLevel: 'low' | 'medium' | 'high' | 'prohibited'
+  riskScore: number  // 0-100
+  riskFactors: {
+    businessType: number
+    kycComplete: number
+    transactionVolume: number
+    geographicRisk: number
+    historicalIssues: number
+  }
+  nextReviewDate: Date
+}
+
+interface MonitoringResult {
+  shouldBlock: boolean
+  riskScore: number
+  triggeredRules: string[]
+  walletRisk?: WalletRisk
+  alerts: Alert[]
+}
+
+interface WalletRisk {
+  address: string
+  blockchain: string
+  riskLevel: 'low' | 'medium' | 'high' | 'prohibited'
+  riskScore: number
+  isSanctioned: boolean
+  riskFactors: {
+    directMixer: boolean
+    indirectMixer: boolean
+    darknetExposure: boolean
+    sanctionedInteraction: boolean
+    walletAge: number
+  }
+}
+```
+
+**AML Rules (Examples)**
+
+```typescript
+// Threshold Rule - Vietnam Legal Requirement
+{
+  id: "THRESHOLD_VN_001",
+  name: "Vietnam Legal Threshold",
+  description: "Transactions ≥ 400M VND require reporting",
+  category: "threshold",
+  severity: "MEDIUM",
+  conditions: [
+    { field: "amount_vnd", operator: ">=", value: 400000000 }
+  ],
+  actions: [
+    { type: "create_alert" },
+    { type: "flag_for_reporting" }
+  ]
+}
+
+// Structuring Detection
+{
+  id: "STRUCT_001",
+  name: "Structuring Detection",
+  description: "Multiple transactions just below threshold",
+  category: "pattern",
+  severity: "MEDIUM",
+  conditions: [
+    { field: "tx_count_24h", operator: ">=", value: 3 },
+    { field: "amount_vnd", operator: "between", value: [8000000, 9500000] }
+  ],
+  actions: [
+    { type: "create_alert" }
+  ]
+}
+
+// Rapid Cash-Out
+{
+  id: "RAPID_001",
+  name: "Rapid Cash-Out",
+  description: "Payout within 1 hour of payment",
+  category: "pattern",
+  severity: "HIGH",
+  conditions: [
+    { field: "time_since_payment_minutes", operator: "<=", value: 60 },
+    { field: "payout_percentage", operator: ">=", value: 80 }
+  ],
+  actions: [
+    { type: "create_alert" },
+    { type: "require_enhanced_review" }
+  ]
+}
+```
+
+**Integration Points**
+
+1. **Merchant Registration** (KYC Phase)
+   - Sanctions screening of business owner
+   - Initial risk score calculation
+   - Block registration if sanctions hit or prohibited risk
+
+2. **Payment Confirmation**
+   - Wallet address screening (check against OFAC sanctioned addresses)
+   - Transaction monitoring (run all enabled rules)
+   - Generate alerts if rules triggered
+   - Block payment if critical alert or prohibited wallet
+
+3. **Payout Request**
+   - Check merchant risk level
+   - Review recent alerts
+   - Require enhanced review for high-risk merchants
+
+**Compliance Standards**
+- FATF 40 Recommendations
+- Vietnam Law on Anti-Money Laundering (2022)
+- FATF Travel Rule for crypto (≥ $1,000 USD)
+- Threshold reporting: 400M VND (~$16,000 USD)
+
+**Data Sources**
+- OFAC SDN List (sanctions)
+- UN Consolidated Sanctions List
+- EU Sanctions Map
+- Chainalysis Sanctions Oracle (crypto wallet screening)
+- TRM Labs (wallet risk analysis)
+
+**Reference**: See [AML_ENGINE.md](./AML_ENGINE.md) for comprehensive documentation.
 
 ---
 
