@@ -11,12 +11,13 @@ import (
 type PaymentStatus string
 
 const (
-	PaymentStatusCreated    PaymentStatus = "created"
-	PaymentStatusPending    PaymentStatus = "pending"
-	PaymentStatusConfirming PaymentStatus = "confirming"
-	PaymentStatusCompleted  PaymentStatus = "completed"
-	PaymentStatusExpired    PaymentStatus = "expired"
-	PaymentStatusFailed     PaymentStatus = "failed"
+	PaymentStatusCreated           PaymentStatus = "created"
+	PaymentStatusPending           PaymentStatus = "pending"
+	PaymentStatusPendingCompliance PaymentStatus = "pending_compliance"
+	PaymentStatusConfirming        PaymentStatus = "confirming"
+	PaymentStatusCompleted         PaymentStatus = "completed"
+	PaymentStatusExpired           PaymentStatus = "expired"
+	PaymentStatusFailed            PaymentStatus = "failed"
 )
 
 // Chain represents a blockchain network
@@ -46,7 +47,7 @@ type Payment struct {
 	CallbackURL sql.NullString `json:"callback_url,omitempty" db:"callback_url" validate:"omitempty,url"`
 
 	// Payment status
-	Status PaymentStatus `json:"status" db:"status" validate:"required,oneof=created pending confirming completed expired failed"`
+	Status PaymentStatus `json:"status" db:"status" validate:"required,oneof=created pending pending_compliance confirming completed expired failed"`
 
 	// Blockchain transaction details
 	TxHash          sql.NullString `json:"tx_hash,omitempty" db:"tx_hash"`
@@ -61,6 +62,10 @@ type Payment struct {
 	ExpiresAt   time.Time    `json:"expires_at" db:"expires_at"`
 	PaidAt      sql.NullTime `json:"paid_at,omitempty" db:"paid_at"`
 	ConfirmedAt sql.NullTime `json:"confirmed_at,omitempty" db:"confirmed_at"`
+
+	// Compliance timing (FATF Travel Rule)
+	ComplianceDeadline    sql.NullTime `json:"compliance_deadline,omitempty" db:"compliance_deadline"`
+	ComplianceSubmittedAt sql.NullTime `json:"compliance_submitted_at,omitempty" db:"compliance_submitted_at"`
 
 	// Fee calculation
 	FeePercentage decimal.Decimal `json:"fee_percentage" db:"fee_percentage" validate:"gte=0,lte=0.1"`
@@ -91,12 +96,30 @@ func (p *Payment) IsCompleted() bool {
 
 // IsPending returns true if the payment is pending confirmation
 func (p *Payment) IsPending() bool {
-	return p.Status == PaymentStatusPending || p.Status == PaymentStatusConfirming
+	return p.Status == PaymentStatusPending || p.Status == PaymentStatusPendingCompliance || p.Status == PaymentStatusConfirming
 }
 
 // CanBeConfirmed returns true if the payment can be confirmed
 func (p *Payment) CanBeConfirmed() bool {
-	return (p.Status == PaymentStatusCreated || p.Status == PaymentStatusPending) && !p.IsExpired()
+	return (p.Status == PaymentStatusCreated || p.Status == PaymentStatusPending || p.Status == PaymentStatusPendingCompliance) && !p.IsExpired()
+}
+
+// IsPendingCompliance returns true if the payment is waiting for Travel Rule data submission
+func (p *Payment) IsPendingCompliance() bool {
+	return p.Status == PaymentStatusPendingCompliance
+}
+
+// IsComplianceExpired returns true if the compliance deadline has passed
+func (p *Payment) IsComplianceExpired() bool {
+	if !p.ComplianceDeadline.Valid {
+		return false
+	}
+	return time.Now().After(p.ComplianceDeadline.Time)
+}
+
+// HasComplianceData returns true if compliance data has been submitted
+func (p *Payment) HasComplianceData() bool {
+	return p.ComplianceSubmittedAt.Valid
 }
 
 // CalculateFee calculates the fee and net amount based on the amount and fee percentage

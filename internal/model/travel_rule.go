@@ -15,12 +15,13 @@ type TravelRuleData struct {
 	PaymentID string `json:"payment_id" db:"payment_id" validate:"required,uuid"`
 
 	// Payer Information (Originator) - FATF Required
-	PayerFullName      string         `json:"payer_full_name" db:"payer_full_name" validate:"required,min=2,max=255"`
-	PayerWalletAddress string         `json:"payer_wallet_address" db:"payer_wallet_address" validate:"required,min=26,max=255"`
-	PayerCountry       string         `json:"payer_country" db:"payer_country" validate:"required,iso3166_1_alpha2,len=2"`
-	PayerIDDocument    sql.NullString `json:"payer_id_document,omitempty" db:"payer_id_document" validate:"omitempty,max=255"`
-	PayerDateOfBirth   sql.NullTime   `json:"payer_date_of_birth,omitempty" db:"payer_date_of_birth"`
-	PayerAddress       sql.NullString `json:"payer_address,omitempty" db:"payer_address"`
+	// Sensitive fields are encrypted at rest using AES-256-GCM
+	PayerFullName      string         `json:"payer_full_name" db:"payer_full_name" gorm:"type:text" encrypt:"true" validate:"required,min=2,max=255"`
+	PayerWalletAddress string         `json:"payer_wallet_address" db:"payer_wallet_address" gorm:"type:text" validate:"required,min=26,max=255"`
+	PayerCountry       string         `json:"payer_country" db:"payer_country" gorm:"type:varchar(2)" validate:"required,iso3166_1_alpha2,len=2"`
+	PayerIDDocument    sql.NullString `json:"payer_id_document,omitempty" db:"payer_id_document" gorm:"type:text" encrypt:"true" validate:"omitempty,max=255"`
+	PayerDateOfBirth   sql.NullTime   `json:"payer_date_of_birth,omitempty" db:"payer_date_of_birth" encrypt:"true"`
+	PayerAddress       sql.NullString `json:"payer_address,omitempty" db:"payer_address" gorm:"type:text" encrypt:"true"`
 
 	// Merchant Information (Beneficiary) - FATF Required
 	MerchantFullName             string         `json:"merchant_full_name" db:"merchant_full_name" validate:"required,min=2,max=255"`

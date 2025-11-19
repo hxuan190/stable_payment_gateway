@@ -48,13 +48,14 @@ func (r *PaymentRepository) Create(payment *model.Payment) error {
 			tx_hash, tx_confirmations, from_address,
 			payment_reference, destination_wallet,
 			expires_at, paid_at, confirmed_at,
+			compliance_deadline, compliance_submitted_at,
 			fee_percentage, fee_vnd, net_amount_vnd,
 			failure_reason,
 			metadata,
 			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-			$15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+			$15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
 		)
 		RETURNING id, created_at, updated_at
 	`
@@ -88,6 +89,8 @@ func (r *PaymentRepository) Create(payment *model.Payment) error {
 		payment.ExpiresAt,
 		payment.PaidAt,
 		payment.ConfirmedAt,
+		payment.ComplianceDeadline,
+		payment.ComplianceSubmittedAt,
 		payment.FeePercentage,
 		payment.FeeVND,
 		payment.NetAmountVND,
@@ -123,6 +126,7 @@ func (r *PaymentRepository) GetByID(id string) (*model.Payment, error) {
 			tx_hash, tx_confirmations, from_address,
 			payment_reference, destination_wallet,
 			expires_at, paid_at, confirmed_at,
+			compliance_deadline, compliance_submitted_at,
 			fee_percentage, fee_vnd, net_amount_vnd,
 			failure_reason,
 			metadata,
@@ -152,6 +156,8 @@ func (r *PaymentRepository) GetByID(id string) (*model.Payment, error) {
 		&payment.ExpiresAt,
 		&payment.PaidAt,
 		&payment.ConfirmedAt,
+		&payment.ComplianceDeadline,
+		&payment.ComplianceSubmittedAt,
 		&payment.FeePercentage,
 		&payment.FeeVND,
 		&payment.NetAmountVND,
@@ -311,12 +317,13 @@ func (r *PaymentRepository) UpdateStatus(id string, status model.PaymentStatus) 
 
 	// Validate status
 	validStatuses := map[model.PaymentStatus]bool{
-		model.PaymentStatusCreated:    true,
-		model.PaymentStatusPending:    true,
-		model.PaymentStatusConfirming: true,
-		model.PaymentStatusCompleted:  true,
-		model.PaymentStatusExpired:    true,
-		model.PaymentStatusFailed:     true,
+		model.PaymentStatusCreated:           true,
+		model.PaymentStatusPending:           true,
+		model.PaymentStatusPendingCompliance: true,
+		model.PaymentStatusConfirming:        true,
+		model.PaymentStatusCompleted:         true,
+		model.PaymentStatusExpired:           true,
+		model.PaymentStatusFailed:            true,
 	}
 	if !validStatuses[status] {
 		return ErrInvalidPaymentStatus
@@ -374,12 +381,14 @@ func (r *PaymentRepository) Update(payment *model.Payment) error {
 			expires_at = $17,
 			paid_at = $18,
 			confirmed_at = $19,
-			fee_percentage = $20,
-			fee_vnd = $21,
-			net_amount_vnd = $22,
-			failure_reason = $23,
-			metadata = $24,
-			updated_at = $25
+			compliance_deadline = $20,
+			compliance_submitted_at = $21,
+			fee_percentage = $22,
+			fee_vnd = $23,
+			net_amount_vnd = $24,
+			failure_reason = $25,
+			metadata = $26,
+			updated_at = $27
 		WHERE id = $1 AND deleted_at IS NULL
 		RETURNING updated_at
 	`
@@ -407,6 +416,8 @@ func (r *PaymentRepository) Update(payment *model.Payment) error {
 		payment.ExpiresAt,
 		payment.PaidAt,
 		payment.ConfirmedAt,
+		payment.ComplianceDeadline,
+		payment.ComplianceSubmittedAt,
 		payment.FeePercentage,
 		payment.FeeVND,
 		payment.NetAmountVND,
@@ -518,6 +529,7 @@ func (r *PaymentRepository) GetExpiredPayments() ([]*model.Payment, error) {
 			tx_hash, tx_confirmations, from_address,
 			payment_reference, destination_wallet,
 			expires_at, paid_at, confirmed_at,
+			compliance_deadline, compliance_submitted_at,
 			fee_percentage, fee_vnd, net_amount_vnd,
 			failure_reason,
 			metadata,
@@ -558,6 +570,8 @@ func (r *PaymentRepository) GetExpiredPayments() ([]*model.Payment, error) {
 			&payment.ExpiresAt,
 			&payment.PaidAt,
 			&payment.ConfirmedAt,
+			&payment.ComplianceDeadline,
+			&payment.ComplianceSubmittedAt,
 			&payment.FeePercentage,
 			&payment.FeeVND,
 			&payment.NetAmountVND,
@@ -575,6 +589,85 @@ func (r *PaymentRepository) GetExpiredPayments() ([]*model.Payment, error) {
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating expired payments: %w", err)
+	}
+
+	return payments, nil
+}
+
+// GetComplianceExpiredPayments retrieves payments in pending_compliance status that have passed their compliance deadline
+func (r *PaymentRepository) GetComplianceExpiredPayments() ([]*model.Payment, error) {
+	query := `
+		SELECT
+			id, merchant_id,
+			amount_vnd, amount_crypto, currency, chain, exchange_rate,
+			order_id, description, callback_url,
+			status,
+			tx_hash, tx_confirmations, from_address,
+			payment_reference, destination_wallet,
+			expires_at, paid_at, confirmed_at,
+			compliance_deadline, compliance_submitted_at,
+			fee_percentage, fee_vnd, net_amount_vnd,
+			failure_reason,
+			metadata,
+			created_at, updated_at, deleted_at
+		FROM payments
+		WHERE deleted_at IS NULL
+		  AND status = 'pending_compliance'
+		  AND compliance_deadline IS NOT NULL
+		  AND compliance_deadline < $1
+		  AND compliance_submitted_at IS NULL
+		ORDER BY compliance_deadline ASC
+		LIMIT 1000
+	`
+
+	rows, err := r.db.Query(query, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get compliance expired payments: %w", err)
+	}
+	defer rows.Close()
+
+	payments := make([]*model.Payment, 0)
+	for rows.Next() {
+		payment := &model.Payment{}
+		err := rows.Scan(
+			&payment.ID,
+			&payment.MerchantID,
+			&payment.AmountVND,
+			&payment.AmountCrypto,
+			&payment.Currency,
+			&payment.Chain,
+			&payment.ExchangeRate,
+			&payment.OrderID,
+			&payment.Description,
+			&payment.CallbackURL,
+			&payment.Status,
+			&payment.TxHash,
+			&payment.TxConfirmations,
+			&payment.FromAddress,
+			&payment.PaymentReference,
+			&payment.DestinationWallet,
+			&payment.ExpiresAt,
+			&payment.PaidAt,
+			&payment.ConfirmedAt,
+			&payment.ComplianceDeadline,
+			&payment.ComplianceSubmittedAt,
+			&payment.FeePercentage,
+			&payment.FeeVND,
+			&payment.NetAmountVND,
+			&payment.FailureReason,
+			&payment.Metadata,
+			&payment.CreatedAt,
+			&payment.UpdatedAt,
+			&payment.DeletedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan payment: %w", err)
+		}
+		payments = append(payments, payment)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating compliance expired payments: %w", err)
 	}
 
 	return payments, nil
