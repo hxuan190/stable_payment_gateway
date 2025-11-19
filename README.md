@@ -12,46 +12,74 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 
 ## 📚 Documentation
 
+### Core Documents
+
 | Document | Description |
 |----------|-------------|
+| **[PRD_v2.2.md](./PRD_v2.2.md)** | **🆕 Product Requirements Document v2.2** - Complete requirements with new features |
+| **[PRD_v2.2_ROADMAP.md](./PRD_v2.2_ROADMAP.md)** | **🆕 10-Week Implementation Roadmap** - Detailed week-by-week and day-by-day plan |
 | **[REQUIREMENTS.md](./REQUIREMENTS.md)** | Full functional/non-functional requirements, phased by MVP → Phase 2 → Phase 3 |
-| **[ARCHITECTURE.md](./ARCHITECTURE.md)** | Technical architecture, system design, database schema, API specs |
+| **[ARCHITECTURE.md](./ARCHITECTURE.md)** | Technical architecture, system design, database schema, API specs + PRD v2.2 updates |
 | **[AML_ENGINE.md](./AML_ENGINE.md)** | **In-house AML compliance engine**: risk scoring, transaction monitoring, sanctions screening |
 | **[STAKEHOLDER_ANALYSIS.md](./STAKEHOLDER_ANALYSIS.md)** | Merchant, User, Product Owner perspectives + business model |
-| **[MVP_ROADMAP.md](./MVP_ROADMAP.md)** | Week-by-week implementation plan (4-6 weeks to launch) |
 | **[TECH_STACK_GOLANG.md](./TECH_STACK_GOLANG.md)** | Golang implementation guide: frameworks, libraries, multi-chain architecture |
 | **[TOURISM_USE_CASES.md](./TOURISM_USE_CASES.md)** | Detailed use cases for hotels, restaurants, tourist services in Da Nang |
 | **[GETTING_STARTED.md](./GETTING_STARTED.md)** | Step-by-step guide for dev team to start implementation |
 | **[CLAUDE.md](./CLAUDE.md)** | Comprehensive guide for AI assistants working on this project |
 
+### PRD v2.2 - New Modules (Design Phase)
+
+| Document | Description |
+|----------|-------------|
+| **[IDENTITY_MAPPING.md](./IDENTITY_MAPPING.md)** | **🆕 Smart Wallet→User Identity** - One-time KYC with Redis caching |
+| **[NOTIFICATION_CENTER.md](./NOTIFICATION_CENTER.md)** | **🆕 Omni-channel Notifications** - Speaker/TTS, Telegram, Zalo, Email, Webhook |
+| **[DATA_RETENTION.md](./DATA_RETENTION.md)** | **🆕 Infinite Storage** - S3 Glacier archival + transaction hashing |
+| **[OFF_RAMP_STRATEGIES.md](./OFF_RAMP_STRATEGIES.md)** | **🆕 Flexible Withdrawals** - On-demand, Scheduled, Threshold-based |
+
 ---
 
 ## 🚀 Quick Summary
 
-### MVP Scope (4-6 weeks)
+### PRD v2.2 Scope (8-10 weeks)
 
-**Core Features**
+**Core Features (MVP)**
 - ✅ Merchant creates payment → QR code generated
-- ✅ User scans QR → sends crypto (USDT on Solana)
+- ✅ User scans QR → sends crypto (USDT on **TRON/Solana/BSC**)
 - ✅ System detects payment → confirms → updates merchant balance
 - ✅ Merchant requests payout → manual approval → VND bank transfer
 - ✅ **In-house AML Engine**: transaction monitoring, risk scoring, sanctions screening
 - ✅ KYC compliance (manual review)
 - ✅ Audit logging for all transactions
 
+**🆕 PRD v2.2 Enhancements**
+- ✅ **Smart Identity Mapping**: One-time KYC, returning users auto-recognized
+- ✅ **Omni-channel Notifications**: Speaker/TTS, Telegram Bot, Zalo OA/ZNS, Email
+- ✅ **Custodial Treasury**: Multi-sig cold wallet + auto-sweeping (every 6 hours)
+- ✅ **Flexible Off-ramp**: On-demand, Scheduled (weekly/monthly), Threshold-based
+- ✅ **Infinite Data Retention**: S3 Glacier archival + transaction hashing (immutability)
+
 **Tech Stack**
 - Backend: **Golang** + Gin + GORM + PostgreSQL
 - Frontend: Next.js + TailwindCSS
-- Blockchain: **Solana + BNB Chain (BSC)** (multi-chain from MVP)
-  - Solana: USDT, USDC
-  - BSC: USDT, BUSD
-- Infrastructure: Docker + NGINX + Redis
+- Blockchain: **TRON + Solana + BSC** (multi-chain)
+  - TRON: USDT (TRC20) - Cheapest fees (~$1)
+  - Solana: USDT, USDC (SPL) - Fastest finality (~13s)
+  - BSC: USDT, BUSD (BEP20) - Popular in SEA
+- **New Integrations**:
+  - Sumsub: KYC & Face Liveness ($0.50/check)
+  - Telegram Bot API: Real-time notifications
+  - Zalo OA/ZNS: Vietnam market leader ($0.01/msg)
+  - Google Cloud TTS: Speaker notifications ($4/1M chars)
+  - AWS S3 Glacier: Long-term storage ($4/TB/month)
+- Infrastructure: Docker + NGINX + Redis + Bull Queue
 
 **Target Metrics (Month 1)**
 - 5 pilot merchants
 - 1B+ VND volume
 - 10M+ VND revenue
 - 99% uptime
+- **🆕 KYC Recognition Rate > 95%**
+- **🆕 Notification Delivery > 95%**
 
 ---
 

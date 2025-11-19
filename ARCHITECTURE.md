@@ -840,3 +840,362 @@ GET /api/admin/stats
 - Dedicated blockchain nodes
 - Microservices architecture
 
+---
+
+## 🆕 PRD v2.2 UPDATES (NEW MODULES)
+
+**Last Updated**: 2025-11-19
+**Status**: Design Phase
+
+### New Modules Overview
+
+PRD v2.2 introduces 5 major enhancements to the system:
+
+| Module | Purpose | Priority | Doc Reference |
+|--------|---------|----------|---------------|
+| **Identity Mapping** | Wallet→User KYC (one-time) | 🔴 CRITICAL | [IDENTITY_MAPPING.md](./IDENTITY_MAPPING.md) |
+| **Notification Center** | Omni-channel notifications | 🟡 HIGH | [NOTIFICATION_CENTER.md](./NOTIFICATION_CENTER.md) |
+| **Data Retention** | Infinite storage (S3 Glacier) | 🔴 HIGH | [DATA_RETENTION.md](./DATA_RETENTION.md) |
+| **Off-ramp Strategies** | Scheduled/threshold payouts | 🟢 MEDIUM | [OFF_RAMP_STRATEGIES.md](./OFF_RAMP_STRATEGIES.md) |
+| **Custodial Treasury** | Multi-sig + sweeping | 🔴 CRITICAL | [PRD_v2.2.md](./PRD_v2.2.md) §2.2 |
+
+---
+
+### 1. Identity Mapping Service
+
+**Purpose**: Link wallet addresses to user identities permanently
+
+**Key Features**:
+- First-time: KYC required (ID upload + face liveness)
+- Returning: Auto-recognize wallet → Skip KYC
+- Redis caching for <10ms lookup
+
+**Database Tables**:
+- `users` - Encrypted PII
+- `wallet_identity_mappings` - Wallet ↔ User links
+- `kyc_sessions` - Track KYC verification
+
+**API Endpoints**:
+```
+GET /api/v1/wallet/:blockchain/:address/kyc-status
+POST /api/v1/wallet/kyc/initiate
+POST /api/v1/wallet/kyc/upload
+POST /api/v1/wallet/kyc/liveness
+```
+
+**Integration Point**: Payment flow checks wallet KYC before allowing payment
+
+---
+
+### 2. Notification Center
+
+**Purpose**: Multi-channel notifications to ensure merchants never miss payments
+
+**Channels**:
+1. **Speaker/TTS** (Priority 1): Audio alert at POS
+2. **Telegram Bot** (Priority 2): Real-time push to boss
+3. **Zalo OA/ZNS** (Priority 2): Vietnam market leader
+4. **Email** (Priority 4): Invoice & statements
+5. **Webhook** (Priority 3): POS/ERP integration
+
+**Architecture**:
+- Plugin-based design (easy to add channels)
+- Redis Queue (Bull) for async delivery
+- Retry logic with exponential backoff
+
+**Database Table**:
+- `notification_logs` - Track all notifications sent
+
+**Delivery SLA**:
+- Speaker: < 1 second
+- Telegram/Zalo: < 5 seconds
+- Email: < 30 seconds
+- Webhook: < 10 seconds
+
+---
+
+### 3. Data Retention System
+
+**Purpose**: Banking-grade infinite storage with immutability
+
+**Storage Tiers**:
+- **Hot Storage (0-12 months)**: PostgreSQL (fast queries)
+- **Cold Storage (1+ years)**: S3 Glacier ($4/TB/month)
+
+**Archival Process**:
+- Monthly job moves old data to S3 Glacier
+- Compressed JSON with gzip
+- Keeps record IDs + hashes in DB for integrity
+
+**Transaction Hashing**:
+- SHA-256 hash per transaction
+- Hash chain (each hash references previous)
+- Daily Merkle tree for batch verification
+
+**Database Tables**:
+- `transaction_hashes` - Immutability tracking
+- `archived_records` - S3 location metadata
+- `merkle_roots` - Daily batch verification
+
+**Restore Process**:
+- S3 Glacier Expedited: 1-5 hours
+- Automatic integrity verification via hash
+
+---
+
+### 4. Off-ramp Strategies
+
+**Purpose**: Flexible VND withdrawal options for merchants
+
+**Three Modes**:
+
+**A. On-Demand** (Manual):
+- Merchant clicks "Withdraw" → Enter amount → Ops approves
+
+**B. Scheduled** (Auto):
+- Weekly/Monthly schedule
+- Example: Every Friday 4PM, withdraw 80% of balance
+
+**C. Threshold-based** (Auto):
+- Trigger when balance > threshold (e.g., 5,000 USDT)
+- Auto-withdraw 90% when triggered
+
+**Database Table**:
+- `payout_schedules` - Store merchant withdrawal preferences
+
+**Workers**:
+- **PayoutScheduler**: Runs every minute, checks schedules
+- **ThresholdMonitor**: Runs hourly, checks balance thresholds
+
+---
+
+### 5. Custodial Treasury (Enhanced)
+
+**Purpose**: Secure multi-chain asset custody with automatic sweeping
+
+**Hot Wallets** (per chain):
+- TRON: Receive payments
+- Solana: Receive payments
+- BSC: Receive payments
+
+**Cold Wallet**:
+- Multi-sig 2-of-3 or MPC
+- Main treasury storage
+
+**Sweeping Mechanism**:
+- Auto-sweep every 6 hours
+- Threshold: Hot wallet > $10,000 USD
+- Move excess to cold wallet
+- Log all sweeps in `sweeping_logs` table
+
+**Security**:
+- Multi-sig requires 2 approvals
+- Alerting when sweeping fails
+- Manual backup process
+
+---
+
+### Updated Application Layer Diagram
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                   APPLICATION LAYER (PRD v2.2)             │
+│                                                             │
+│  ┌──────────────────┐  ┌──────────────────┐                │
+│  │ Identity Mapping │  │ Payment Service  │                │
+│  │ Service (NEW!)   │  │                  │                │
+│  │ - Wallet→User    │  │ - Create payment │                │
+│  │ - Face liveness  │  │ - Validate       │                │
+│  │ - Redis cache    │  │ - Confirm        │                │
+│  └──────────────────┘  └──────────────────┘                │
+│                                                             │
+│  ┌──────────────────┐  ┌──────────────────┐                │
+│  │ Notification     │  │ Treasury Service │                │
+│  │ Center (NEW!)    │  │ (ENHANCED)       │                │
+│  │ - Speaker/TTS    │  │ - Custodial      │                │
+│  │ - Telegram Bot   │  │ - Sweeping       │                │
+│  │ - Zalo OA/ZNS    │  │ - Multi-sig      │                │
+│  │ - Email/Webhook  │  └──────────────────┘                │
+│  └──────────────────┘                                       │
+│                        ┌──────────────────┐                 │
+│  ┌──────────────────┐  │ Off-ramp Manager │                │
+│  │ Data Archival    │  │ (NEW!)           │                │
+│  │ Service (NEW!)   │  │ - On-demand      │                │
+│  │ - Hot→Cold       │  │ - Scheduled      │                │
+│  │ - S3 Glacier     │  │ - Threshold      │                │
+│  │ - Hash verify    │  └──────────────────┘                │
+│  └──────────────────┘                                       │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │             Ledger Service (ENHANCED)              │    │
+│  │  - Double-entry accounting                         │    │
+│  │  - Transaction hashing (NEW!)                      │    │
+│  │  - Merkle tree verification (NEW!)                 │    │
+│  └────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │         AML Engine (Self-built) - EXISTING         │    │
+│  │  - Customer risk scoring                           │    │
+│  │  - Transaction monitoring                          │    │
+│  │  - Sanctions screening                             │    │
+│  └────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Multi-Chain Expansion (PRD v2.2)
+
+**Supported Chains**:
+
+| Chain | Tokens | Priority | Reason |
+|-------|--------|----------|--------|
+| **TRON** | USDT (TRC20) | 🔴 HIGH | Cheapest fees (~$1), huge in Asia |
+| **Solana** | USDT, USDC (SPL) | 🔴 HIGH | Fast finality (13s), low fees |
+| **BSC** | USDT, BUSD (BEP20) | 🟡 MEDIUM | Popular in SEA |
+| **Polygon** | USDT, USDC | 🟢 LOW | Growing ecosystem |
+| **Ethereum** | USDT, USDC | ⚪ FUTURE | Expensive gas |
+
+**Multi-Chain Listener Orchestrator**:
+```
+┌─────────────────────────────────────────────────────┐
+│          Blockchain Listener Orchestrator           │
+├─────────────────────────────────────────────────────┤
+│  ┌──────┐  ┌────────┐  ┌─────┐  ┌────────┐        │
+│  │ TRON │  │ Solana │  │ BSC │  │Polygon │        │
+│  │Listen│  │Listener│  │List │  │Listener│        │
+│  └───┬──┘  └───┬────┘  └──┬──┘  └───┬────┘        │
+│      └─────────┴───────────┴─────────┘             │
+│                    ↓                                │
+│          Transaction Validator                      │
+│          - Verify finality                          │
+│          - AML wallet screening                     │
+│                    ↓                                │
+│          Treasury Service                           │
+│          - Credit merchant balance                  │
+│                    ↓                                │
+│          Notification Dispatcher                    │
+│          - Broadcast to all channels                │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+### New Database Tables Summary
+
+PRD v2.2 adds the following tables:
+
+```sql
+-- Identity Mapping
+CREATE TABLE users (...);
+CREATE TABLE wallet_identity_mappings (...);
+CREATE TABLE kyc_sessions (...);
+
+-- Notifications
+CREATE TABLE notification_logs (...);
+
+-- Off-ramp
+CREATE TABLE payout_schedules (...);
+
+-- Treasury
+CREATE TABLE sweeping_logs (...);
+
+-- Data Retention
+CREATE TABLE archived_records (...);
+CREATE TABLE transaction_hashes (...);
+CREATE TABLE merkle_roots (...);
+```
+
+See detailed schemas in respective module documentation files.
+
+---
+
+### Updated Tech Stack
+
+**New Dependencies**:
+
+| Library | Purpose | Cost |
+|---------|---------|------|
+| **Sumsub SDK** | KYC & Face Liveness | $0.50/check |
+| **node-telegram-bot-api** | Telegram integration | Free |
+| **Zalo API** | Zalo OA/ZNS | $0.01/msg |
+| **@sendgrid/mail** | Email delivery | $15/mo (40k emails) |
+| **Google Cloud TTS** | Text-to-Speech | $4/1M chars |
+| **aws-sdk (S3 Glacier)** | Long-term storage | $4/TB/month |
+| **Bull** | Redis job queue | Free |
+
+---
+
+### Implementation Timeline (Revised)
+
+**Original MVP**: 4-6 weeks
+**PRD v2.2**: **8-10 weeks** (includes all new modules)
+
+**Week-by-week breakdown**:
+- Week 1-2: Foundation + Identity Mapping
+- Week 3-4: Core Payment + Multi-chain
+- Week 5: Notification Center
+- Week 6: Treasury & Sweeping
+- Week 7: Off-ramp + Data Retention
+- Week 8: Admin Panel & Polish
+- Week 9: Testing & Security Audit
+- Week 10: Deployment & Pilot Launch
+
+See [PRD_v2.2.md](./PRD_v2.2.md) Section 5 for full roadmap.
+
+---
+
+### Security Enhancements
+
+**PRD v2.2 Additions**:
+
+1. **PII Encryption**: All user identity data encrypted at rest (AES-256-GCM)
+2. **Transaction Hashing**: SHA-256 hash chain for immutability
+3. **Multi-sig Wallets**: Cold wallet requires 2-of-3 approvals
+4. **Audit Logging**: All identity access logged with IP + reason
+5. **Data Integrity**: Daily Merkle tree verification
+
+---
+
+### Compliance Standards
+
+**New Requirements**:
+
+- **GDPR Right to be Forgotten**: Anonymize user data on request
+- **Vietnam Data Retention**: 7 years minimum (PRD v2.2: infinite)
+- **KYC Re-verification**: Auto-prompt if KYC > 2 years old
+- **Transaction Immutability**: Hash verification prevents tampering
+
+---
+
+### Monitoring & Alerts (PRD v2.2)
+
+**New KPIs**:
+
+| Metric | Target | Alert Threshold |
+|--------|--------|----------------|
+| KYC Recognition Rate | > 95% | < 90% |
+| Notification Delivery | > 95% | < 90% |
+| Speaker Latency | < 3 seconds | > 5 seconds |
+| Sweeping Success Rate | 100% | < 100% |
+| Data Integrity | 100% | < 100% |
+| Cache Hit Rate | > 90% | < 80% |
+
+---
+
+### Reference Documents
+
+For detailed implementation guides, see:
+
+- [PRD_v2.2.md](./PRD_v2.2.md) - Complete product requirements
+- [IDENTITY_MAPPING.md](./IDENTITY_MAPPING.md) - Wallet KYC system
+- [NOTIFICATION_CENTER.md](./NOTIFICATION_CENTER.md) - Multi-channel notifications
+- [DATA_RETENTION.md](./DATA_RETENTION.md) - Infinite storage architecture
+- [OFF_RAMP_STRATEGIES.md](./OFF_RAMP_STRATEGIES.md) - Flexible withdrawals
+
+---
+
+**PRD v2.2 Status**: ✅ Design Complete
+**Next Phase**: Implementation (Week 1-2 starting)
+**Last Updated**: 2025-11-19
+
