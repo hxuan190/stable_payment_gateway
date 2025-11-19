@@ -1,7 +1,7 @@
 # CLAUDE.md - AI Assistant Guide
 
-**Project**: Stablecoin Payment Gateway MVP
-**Last Updated**: 2025-11-16
+**Project**: Stablecoin Payment Gateway - PRD v2.2
+**Last Updated**: 2025-11-19
 **Status**: Documentation Phase (Pre-Implementation)
 
 ---
@@ -16,8 +16,15 @@ This is a **stablecoin payment gateway** designed for Vietnam's tourism market (
 - **Market Opportunity**: Tether + Da Nang partnership (Nov 2025) creates regulatory sandbox
 - **Target Market**: Tourism merchants (hotels, restaurants, tourist services) in Da Nang
 - **Revenue Model**: 1% transaction fees + payout fees + OTC spread
-- **MVP Timeline**: 4-6 weeks to launch
-- **Target Metrics (Month 1)**: 5 pilot merchants, 1B+ VND volume, 99% uptime
+- **PRD v2.2 Timeline**: 8-10 weeks (phased implementation)
+- **Target Metrics (Month 1)**: 5 pilot merchants, 1B+ VND volume, 99% uptime, KYC recognition >95%, Notification delivery >95%
+
+### PRD v2.2 Key Features
+- ✅ **Smart Identity Mapping**: One-time KYC, automatic wallet recognition
+- ✅ **Omni-channel Notifications**: Speaker/TTS, Telegram, Zalo, Email, Webhook
+- ✅ **Custodial Treasury**: Multi-sig cold wallet + auto-sweeping (every 6 hours)
+- ✅ **Infinite Data Retention**: S3 Glacier archival + transaction hashing
+- ✅ **Advanced Off-ramp**: On-demand, Scheduled, Threshold-based withdrawals
 
 ### Key Stakeholders
 - **Merchants**: Accept crypto payments, receive VND settlements
@@ -35,13 +42,22 @@ This repository is currently in the **documentation/planning phase**. No code ha
 ```
 stable_payment_gateway/
 ├── README.md                      # Project overview and quick summary
+├── PRD_v2.2.md                   # 🆕 Product Requirements Document v2.2
 ├── ARCHITECTURE.md                # Technical architecture, system design, database schema
 ├── TECH_STACK_GOLANG.md          # Golang implementation guide (recommended stack)
 ├── REQUIREMENTS.md                # Functional/non-functional requirements (phased)
+├── AML_ENGINE.md                 # In-house AML compliance engine
 ├── MVP_ROADMAP.md                # Week-by-week implementation plan
 ├── GETTING_STARTED.md            # Dev team onboarding and setup guide
 ├── STAKEHOLDER_ANALYSIS.md       # Business model and stakeholder perspectives
 ├── TOURISM_USE_CASES.md          # Specific use cases for Da Nang tourism
+│
+├── 🆕 PRD v2.2 - New Modules
+│   ├── IDENTITY_MAPPING.md       # Smart Wallet→User Identity (one-time KYC)
+│   ├── NOTIFICATION_CENTER.md    # Omni-channel notifications
+│   ├── DATA_RETENTION.md         # Infinite storage with S3 Glacier
+│   └── OFF_RAMP_STRATEGIES.md    # Flexible withdrawal modes
+│
 └── CLAUDE.md                     # This file - AI assistant guide
 ```
 
@@ -97,6 +113,10 @@ stable_payment_gateway/
    - Payout Service (requests, approvals, execution)
    - Ledger Service (double-entry accounting)
    - Notification Service (webhooks, emails)
+   - 🆕 **Identity Mapping Service** (wallet→user KYC recognition)
+   - 🆕 **Notification Dispatcher** (multi-channel plugin architecture)
+   - 🆕 **Data Archival Service** (S3 Glacier + transaction hashing)
+   - 🆕 **Treasury Service** (custodial wallet sweeping)
 
 3. **Blockchain Layer**
    - Multi-chain listeners (Solana + BSC initially)
@@ -110,12 +130,14 @@ stable_payment_gateway/
 
 ### Multi-Chain Support
 
-**Supported Chains (MVP)**:
-- **Solana**: USDT, USDC (fast finality ~400ms, low fees ~$0.001)
-- **BNB Chain (BSC)**: USDT (BEP20), BUSD (popular in Asia)
+**Supported Chains (PRD v2.2)**:
+- 🆕 **TRON (Priority HIGH)**: USDT (TRC20) - **Cheapest fees (~$1)**, massive adoption in Asia
+- **Solana**: USDT, USDC (SPL) - **Fastest finality (~13s)**, low fees
+- **BNB Chain (BSC)**: USDT, BUSD (BEP20) - Popular in SEA
 
 **Chain Selection Philosophy**:
-- Solana for speed and low cost
+- **TRON for cost** (tourism sector needs low fees)
+- Solana for speed and developer experience
 - BSC for Asia-Pacific market penetration
 - Ethereum support planned for Phase 2
 
@@ -141,8 +163,13 @@ stable_payment_gateway/
 - Redis 7
 - github.com/gagliardetto/solana-go (Solana)
 - github.com/ethereum/go-ethereum (BSC/Ethereum)
+- 🆕 github.com/fbsobreira/gotron-sdk (TRON)
 - github.com/shopspring/decimal (money calculations)
 - github.com/hibiken/asynq (background jobs)
+- 🆕 github.com/aws/aws-sdk-go (S3 Glacier archival)
+- 🆕 Sumsub SDK (KYC + Face Liveness)
+- 🆕 Telegram Bot API (notifications)
+- 🆕 Zalo API (ZNS notifications)
 ```
 
 **Alternative**: Node.js + TypeScript stack is documented in MVP_ROADMAP.md
@@ -198,6 +225,32 @@ stable_payment_gateway/
 - Tracks blockchain transaction details
 - Key fields: `chain`, `tx_hash`, `amount`, `confirmations`, `payment_id`, `status`
 
+### 🆕 PRD v2.2 Tables
+
+**wallet_identity_mappings**
+- Maps wallet addresses to user identities for one-time KYC
+- Key fields: `wallet_address`, `blockchain`, `user_id`, `kyc_status`, `payment_count`
+
+**notification_logs**
+- Tracks all notifications sent across all channels
+- Key fields: `payment_id`, `channel`, `status`, `sent_at`, `delivered_at`, `error_message`
+
+**payout_schedules**
+- Merchant withdrawal configuration (scheduled + threshold-based)
+- Key fields: `merchant_id`, `scheduled_enabled`, `scheduled_frequency`, `threshold_enabled`, `threshold_usdt`
+
+**archived_records**
+- Metadata for data archived to S3 Glacier
+- Key fields: `original_id`, `table_name`, `archive_path`, `data_hash`, `archived_at`
+
+**transaction_hashes**
+- SHA-256 hash chain for transaction immutability
+- Key fields: `table_name`, `record_id`, `data_hash`, `previous_hash`, `merkle_root`
+
+**treasury_operations**
+- Logs sweeping operations from hot wallets to cold storage
+- Key fields: `from_wallet`, `to_wallet`, `amount`, `chain`, `tx_hash`, `operation_type`
+
 ---
 
 ## 🔄 Core Workflows
@@ -250,6 +303,61 @@ Daily: Check hot wallet balance
   → Record OTC transaction
 ```
 
+### 🆕 5. Smart Identity Mapping Flow (PRD v2.2)
+```
+User scans payment QR
+  → Extract wallet address from transaction
+  → Check Redis cache: wallet→user mapping
+  → If cached: retrieve user_id, skip KYC
+  → If NOT cached: Check PostgreSQL wallet_identity_mappings
+  → If found in DB: load user data, cache in Redis (7-day TTL)
+  → If NEW wallet: Trigger KYC flow (Sumsub face liveness)
+  → After KYC: Create wallet_identity_mapping record
+  → Cache in Redis for 7 days
+  → Process payment with user context
+```
+
+### 🆕 6. Omni-channel Notification Flow (PRD v2.2)
+```
+Payment confirmed event
+  → Notification Dispatcher receives event
+  → Load merchant notification preferences
+  → For each enabled channel (Speaker, Telegram, Zalo, Email, Webhook):
+    → Create notification job in Bull Queue (Redis)
+    → Plugin-specific worker picks up job
+    → Send notification via channel API
+    → Log result in notification_logs table
+    → If failed: retry with exponential backoff (3 attempts)
+  → Track delivery success rate per channel
+```
+
+### 🆕 7. Treasury Sweeping Flow (PRD v2.2)
+```
+Every 6 hours (cron job)
+  → For each hot wallet (TRON, Solana, BSC):
+    → Check balance
+    → If balance > $10,000:
+      → Calculate sweep amount (leave $5k buffer)
+      → Create multi-sig transaction (2-of-3)
+      → Transfer to cold wallet
+      → Log in treasury_operations table
+      → Send alert to ops team
+```
+
+### 🆕 8. Data Archival Flow (PRD v2.2)
+```
+Monthly (1st of month, 2 AM UTC)
+  → Find records > 12 months old (payments, payouts, ledger)
+  → For each batch:
+    → Compute SHA-256 hash for each record
+    → Compress batch (gzip)
+    → Upload to S3 Glacier
+    → Create archived_records metadata entry
+    → Mark original records as archived (keep IDs + hashes)
+  → Daily: Compute Merkle root for day's hashes
+  → Store Merkle root for integrity verification
+```
+
 ---
 
 ## 🔐 Security Considerations
@@ -262,6 +370,15 @@ Daily: Check hot wallet balance
 - Audit logging for all critical operations
 - Private keys stored in environment variables (→ Vault in Phase 2)
 - Hot wallet maintains minimum balance (<$10k)
+
+### 🆕 PRD v2.2 Security Enhancements
+- **Multi-sig Cold Wallet**: 2-of-3 signature scheme for cold storage
+- **Auto-sweeping**: Hot wallet → Cold wallet every 6 hours when balance > $10k
+- **Face Liveness Detection**: Anti-spoofing for KYC (Sumsub)
+- **Transaction Hash Chain**: SHA-256 hash chain for immutability
+- **Daily Merkle Root**: Batch integrity verification
+- **S3 Glacier Encryption**: AES-256 encryption for archived data
+- **Redis Cache Security**: Encrypted wallet identity mappings with 7-day TTL
 
 ### Secure Coding Practices
 - **NEVER use float64 for money calculations** - always use `decimal.Decimal`
@@ -351,15 +468,24 @@ DB_NAME=payment_gateway
 
 # Redis
 REDIS_HOST=localhost:6379
+REDIS_PASSWORD=<secret>
 
 # Blockchain (use testnet first!)
+# 🆕 TRON (Priority HIGH)
+TRON_RPC_URL=https://api.shasta.trongrid.io (testnet)
+TRON_HOT_WALLET_PRIVATE_KEY=<secret>
+TRON_HOT_WALLET_ADDRESS=<public>
+TRON_COLD_WALLET_ADDRESS=<public>
+
 SOLANA_RPC_URL=https://api.devnet.solana.com
-SOLANA_WALLET_PRIVATE_KEY=<secret>
-SOLANA_WALLET_ADDRESS=<public>
+SOLANA_HOT_WALLET_PRIVATE_KEY=<secret>
+SOLANA_HOT_WALLET_ADDRESS=<public>
+SOLANA_COLD_WALLET_ADDRESS=<public>
 
 BSC_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545
-BSC_WALLET_PRIVATE_KEY=<secret>
-BSC_WALLET_ADDRESS=<public>
+BSC_HOT_WALLET_PRIVATE_KEY=<secret>
+BSC_HOT_WALLET_ADDRESS=<public>
+BSC_COLD_WALLET_ADDRESS=<public>
 
 # API
 API_PORT=8080
@@ -368,6 +494,30 @@ API_RATE_LIMIT=100
 
 # Exchange Rate
 EXCHANGE_RATE_API=https://api.coingecko.com/api/v3
+
+# 🆕 PRD v2.2 Integrations
+# KYC & Face Liveness
+SUMSUB_APP_TOKEN=<secret>
+SUMSUB_SECRET_KEY=<secret>
+SUMSUB_BASE_URL=https://api.sumsub.com
+
+# Notifications
+TELEGRAM_BOT_TOKEN=<secret>
+ZALO_OA_ID=<public>
+ZALO_OA_SECRET=<secret>
+GOOGLE_TTS_API_KEY=<secret>
+SENDGRID_API_KEY=<secret>
+
+# Data Archival
+AWS_ACCESS_KEY_ID=<secret>
+AWS_SECRET_ACCESS_KEY=<secret>
+AWS_S3_BUCKET=payment-gateway-archives
+AWS_S3_REGION=ap-southeast-1
+
+# Treasury
+TREASURY_SWEEP_THRESHOLD_USD=10000
+TREASURY_SWEEP_INTERVAL_HOURS=6
+MULTISIG_REQUIRED_SIGNATURES=2
 
 # Environment
 ENV=development|staging|production
@@ -453,25 +603,36 @@ fee := amountVND.Mul(decimal.NewFromFloat(0.01)) // 1% fee
 
 ### Required Reading (In Order)
 1. **README.md** - Start here for project overview
-2. **REQUIREMENTS.md** - Understand functional requirements
-3. **ARCHITECTURE.md** - Deep dive into system design
-4. **TECH_STACK_GOLANG.md** - Implementation details
-5. **GETTING_STARTED.md** - Setup and development guide
+2. **PRD_v2.2.md** - Complete product requirements (PRD v2.2)
+3. **REQUIREMENTS.md** - Understand functional requirements
+4. **ARCHITECTURE.md** - Deep dive into system design
+5. **TECH_STACK_GOLANG.md** - Implementation details
+6. **GETTING_STARTED.md** - Setup and development guide
+
+### 🆕 PRD v2.2 Module Docs
+- **IDENTITY_MAPPING.md** - Smart wallet→user identity (one-time KYC)
+- **NOTIFICATION_CENTER.md** - Omni-channel notification architecture
+- **DATA_RETENTION.md** - Infinite storage with S3 Glacier + transaction hashing
+- **OFF_RAMP_STRATEGIES.md** - Flexible withdrawal modes (on-demand, scheduled, threshold)
 
 ### Domain-Specific Docs
+- **AML_ENGINE.md** - In-house AML compliance engine
 - **TOURISM_USE_CASES.md** - Understand target market and use cases
 - **STAKEHOLDER_ANALYSIS.md** - Business model and stakeholder needs
 - **MVP_ROADMAP.md** - Implementation timeline and milestones
 
 ---
 
-## 🎯 MVP Success Criteria
+## 🎯 PRD v2.2 Success Criteria
 
 ### Technical KPIs
 - Payment success rate: **> 98%**
 - Average confirmation time: **< 20 seconds**
 - System uptime: **> 99%**
 - Webhook delivery rate: **> 95%**
+- 🆕 **KYC Recognition Rate**: **> 95%** (returning users auto-recognized)
+- 🆕 **Notification Delivery Rate**: **> 95%** (across all channels)
+- 🆕 **Treasury Sweep Success**: **> 99%** (automated sweeping operations)
 - Zero security incidents
 
 ### Business KPIs
@@ -479,11 +640,13 @@ fee := amountVND.Mul(decimal.NewFromFloat(0.01)) // 1% fee
 - Total volume (Month 1): **1B+ VND**
 - Revenue (Month 1): **10M+ VND**
 - NPS: **> 30**
+- 🆕 **Multi-chain Adoption**: TRON > 50%, Solana > 30%, BSC > 20%
 
 ### Compliance Requirements
 - All transactions properly logged in audit_logs
 - KYC records stored securely and encrypted
-- 7-year data retention capability
+- 🆕 **Infinite data retention** (S3 Glacier archival)
+- 🆕 **Transaction immutability** (hash chain + Merkle root verification)
 - Zero compliance violations
 
 ---
@@ -514,6 +677,32 @@ fee := amountVND.Mul(decimal.NewFromFloat(0.01)) // 1% fee
 - Audit logs must never be deleted (append-only)
 - Transaction limits must be enforced (start: 10M VND/tx max)
 - Payout requests must go through manual approval (MVP)
+
+### 🆕 PRD v2.2 Critical Notes
+
+**Identity Mapping**:
+- ALWAYS check Redis cache first (wallet→user mapping)
+- Cache TTL = 7 days (604,800 seconds)
+- NEVER skip face liveness check for new wallets
+- Hash wallet addresses before storing (privacy)
+
+**Notification System**:
+- MUST log all notification attempts in notification_logs
+- Retry failed notifications max 3 times (exponential backoff: 1m, 5m, 15m)
+- Rate limits: Zalo (100/day free tier), Telegram (30 msg/sec)
+- Speaker notifications: ONLY for in-person merchant terminals
+
+**Data Retention**:
+- NEVER delete archived data from S3 Glacier
+- ALWAYS compute SHA-256 hash before archiving
+- Verify hash integrity before restoring from archive
+- Daily Merkle root MUST be computed and stored
+
+**Treasury Security**:
+- Hot wallet sweeping: MUST use multi-sig 2-of-3
+- NEVER sweep if balance < $5k buffer
+- Log ALL sweeping operations in treasury_operations table
+- Alert ops team for manual verification before sweep
 
 ---
 
@@ -546,6 +735,35 @@ fee := amountVND.Mul(decimal.NewFromFloat(0.01)) // 1% fee
 4. Update model structs in `internal/model/`
 5. Run migrations on staging before production
 
+### 🆕 Adding a New Notification Channel (PRD v2.2)
+
+1. Implement `NotificationPlugin` interface in `internal/notification/plugins/<channel>/`
+2. Add channel-specific configuration (API keys, rate limits)
+3. Implement send method with retry logic (3 attempts, exponential backoff)
+4. Add integration tests with mock API
+5. Update merchant dashboard to allow channel configuration
+6. Add monitoring for delivery success rate
+7. Update NOTIFICATION_CENTER.md documentation
+
+### 🆕 Configuring Wallet Identity Caching (PRD v2.2)
+
+1. Set up Redis cache with 7-day TTL
+2. Implement cache-aside pattern: check cache → fallback to DB
+3. Hash wallet addresses before caching (privacy)
+4. Add cache invalidation logic (KYC status updates)
+5. Monitor cache hit rate (target > 90%)
+6. Test cache expiration and refresh logic
+
+### 🆕 Setting Up S3 Glacier Archival (PRD v2.2)
+
+1. Create S3 bucket with Glacier storage class
+2. Implement monthly archival job (1st of month, 2 AM UTC)
+3. Add SHA-256 hashing for each record before archival
+4. Test archive creation, upload, and retrieval (Expedited tier)
+5. Implement restore process (1-5 hours)
+6. Add monitoring for archive success rate
+7. Test integrity verification (hash matching)
+
 ---
 
 ## 🔍 Troubleshooting Guide
@@ -574,6 +792,41 @@ fee := amountVND.Mul(decimal.NewFromFloat(0.01)) // 1% fee
 - Verify migration file syntax
 - Test on local database first
 - Consider breaking into smaller migrations
+
+### 🆕 PRD v2.2 Common Issues
+
+**Issue**: Wallet identity not recognized (cache miss rate high)
+- Check Redis connection and TTL configuration
+- Verify wallet address hashing consistency
+- Review cache invalidation logic
+- Check PostgreSQL wallet_identity_mappings table
+
+**Issue**: Notification delivery failures
+- Check channel-specific rate limits (Zalo: 100/day, Telegram: 30/sec)
+- Verify API keys and credentials
+- Review notification_logs for error patterns
+- Test retry logic (3 attempts, exponential backoff)
+- Check Bull Queue Redis connection
+
+**Issue**: S3 Glacier restore timeout
+- Verify using Expedited tier (1-5 hours, not Standard 3-5 hours)
+- Check restore request status via AWS console
+- Ensure sufficient time buffer (wait up to 6 hours)
+- Test with smaller archive files first
+
+**Issue**: Treasury sweeping failed
+- Verify multi-sig 2-of-3 configuration
+- Check hot wallet balance > $10k threshold
+- Review treasury_operations logs for errors
+- Ensure cold wallet addresses are correct
+- Verify blockchain network connectivity (TRON, Solana, BSC)
+
+**Issue**: KYC face liveness check failed
+- Verify Sumsub API credentials
+- Check image quality and lighting
+- Review anti-spoofing detection logs
+- Test with different devices/cameras
+- Ensure user follows on-screen instructions
 
 ---
 
@@ -712,13 +965,27 @@ Before starting implementation, ensure:
 - **CLAUDE.md**: Comprehensive guide for AI assistants
 
 ### Current Development Status
-As of 2025-11-16, this project is in **documentation phase**. No code has been written yet. The next steps are:
+As of 2025-11-19, this project is in **PRD v2.2 documentation phase**. No code has been written yet. The documentation now includes:
+
+✅ **Completed Documentation (PRD v2.2)**:
+- PRD_v2.2.md - Complete product requirements
+- IDENTITY_MAPPING.md - Smart wallet→user identity system
+- NOTIFICATION_CENTER.md - Omni-channel notification architecture
+- DATA_RETENTION.md - Infinite storage with S3 Glacier
+- OFF_RAMP_STRATEGIES.md - Flexible withdrawal modes
+- Updated ARCHITECTURE.md, REQUIREMENTS.md, README.md, CLAUDE.md
+
+**Next Steps**:
 1. Confirm tech stack (Golang recommended)
 2. Set up project structure
-3. Begin Week 1 implementation (see MVP_ROADMAP.md)
+3. Begin PRD v2.2 implementation (8-10 weeks phased rollout)
+4. Phase 1 (Weeks 1-4): Core payment + Identity Mapping
+5. Phase 2 (Weeks 5-6): Notification Center + Treasury
+6. Phase 3 (Weeks 7-8): Data Retention + Off-ramp
+7. Testing & Launch (Weeks 9-10)
 
 ---
 
-**Last Updated**: 2025-11-16
+**Last Updated**: 2025-11-19
 **Maintained By**: Project Team
 **Questions**: Refer to documentation first, then consult team lead

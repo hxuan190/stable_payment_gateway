@@ -394,3 +394,243 @@
 | Flat fee structure | Simple to explain/implement | Less competitive pricing |
 | No instant payout | Reduce risk, manual review | Worse merchant UX |
 
+---
+
+## 🆕 PRD v2.2 UPDATES
+
+**Last Updated**: 2025-11-19
+**Status**: Design Phase
+
+### New Requirements Overview
+
+PRD v2.2 significantly expands the system with 5 major feature sets. For complete details, see **[PRD_v2.2.md](./PRD_v2.2.md)**.
+
+### 1. Smart Identity Mapping (CRITICAL)
+
+**Requirement**: Link wallet addresses to user identities permanently
+
+**Functional Requirements**:
+- [ ] First-time user: KYC required (ID upload + face liveness check)
+- [ ] Returning user: Auto-recognize wallet from Redis cache → Skip KYC
+- [ ] KYC session expires after 30 minutes if not completed
+- [ ] Support multiple wallets per user
+- [ ] Cache wallet→user mapping in Redis (7-day TTL)
+
+**API Endpoints**:
+- `GET /api/v1/wallet/:blockchain/:address/kyc-status`
+- `POST /api/v1/wallet/kyc/initiate`
+- `POST /api/v1/wallet/kyc/upload`
+- `POST /api/v1/wallet/kyc/liveness`
+
+**Database Tables**:
+- `users` (encrypted PII)
+- `wallet_identity_mappings`
+- `kyc_sessions`
+
+**Success Criteria**:
+- [ ] Recognition rate > 95% (returning users)
+- [ ] KYC completion time < 3 minutes (first-time)
+- [ ] Payment time < 30 seconds (returning users)
+
+**Reference**: [IDENTITY_MAPPING.md](./IDENTITY_MAPPING.md)
+
+---
+
+### 2. Omni-channel Notification Center (HIGH)
+
+**Requirement**: Multi-channel notifications to ensure merchants never miss payments
+
+**Functional Requirements**:
+- [ ] Speaker/TTS: Audio alert at POS counter (< 1 second latency)
+- [ ] Telegram Bot: Real-time push to merchant's phone
+- [ ] Zalo OA/ZNS: Vietnam-specific messaging
+- [ ] Email: Invoice PDF + monthly statements
+- [ ] Webhook: Integration with merchant POS/ERP systems
+- [ ] Plugin-based architecture (easy to add channels)
+- [ ] Redis Queue (Bull) for async delivery
+- [ ] Retry logic with exponential backoff (3 attempts)
+
+**Database Tables**:
+- `notification_logs` (track all sent notifications)
+
+**Success Criteria**:
+- [ ] Delivery rate > 95% for all channels
+- [ ] Speaker latency < 3 seconds
+- [ ] Webhook delivery < 10 seconds
+
+**Reference**: [NOTIFICATION_CENTER.md](./NOTIFICATION_CENTER.md)
+
+---
+
+### 3. Infinite Data Retention (HIGH - Compliance)
+
+**Requirement**: Banking-grade data retention with immutability
+
+**Functional Requirements**:
+- [ ] Hot Storage (0-12 months): PostgreSQL (fast queries)
+- [ ] Cold Storage (1+ years): S3 Glacier ($4/TB/month)
+- [ ] Monthly archival job (compress + upload to S3)
+- [ ] Transaction hashing (SHA-256) for immutability
+- [ ] Hash chain (each hash references previous)
+- [ ] Daily Merkle tree for batch verification
+- [ ] Restore process (S3 Glacier Expedited: 1-5 hours)
+
+**Database Tables**:
+- `transaction_hashes`
+- `archived_records`
+- `merkle_roots`
+
+**Success Criteria**:
+- [ ] 100% data integrity (hash verification)
+- [ ] Restore time < 6 hours
+- [ ] Cost < $10/TB/month
+
+**Reference**: [DATA_RETENTION.md](./DATA_RETENTION.md)
+
+---
+
+### 4. Advanced Off-ramp Strategies (MEDIUM)
+
+**Requirement**: Flexible VND withdrawal options
+
+**Functional Requirements**:
+
+**Mode A: On-Demand**
+- [ ] Merchant manual withdrawal request
+- [ ] Ops team review & approval (MVP)
+
+**Mode B: Scheduled**
+- [ ] Weekly/monthly auto-withdrawal
+- [ ] Configurable day + time (e.g., Friday 16:00)
+- [ ] Configurable withdrawal percentage (e.g., 80% of balance)
+
+**Mode C: Threshold-based**
+- [ ] Auto-trigger when balance > threshold (e.g., 5,000 USDT)
+- [ ] Configurable withdrawal percentage (e.g., 90%)
+- [ ] Cooldown period (24 hours between triggers)
+
+**Database Tables**:
+- `payout_schedules`
+
+**Workers**:
+- PayoutScheduler (runs every minute)
+- ThresholdMonitor (runs hourly)
+
+**Success Criteria**:
+- [ ] Scheduled payouts run on time (±1 minute)
+- [ ] Threshold triggers < 1 hour after balance exceeds
+
+**Reference**: [OFF_RAMP_STRATEGIES.md](./OFF_RAMP_STRATEGIES.md)
+
+---
+
+### 5. Custodial Treasury with Sweeping (CRITICAL - Security)
+
+**Requirement**: Secure multi-chain asset custody
+
+**Functional Requirements**:
+- [ ] Hot Wallets (per chain): TRON, Solana, BSC
+- [ ] Cold Wallet: Multi-sig 2-of-3 or MPC
+- [ ] Auto-sweeping every 6 hours
+- [ ] Sweep threshold: Hot wallet > $10,000 USD
+- [ ] Keep $1,000 in hot wallet for gas fees
+- [ ] Log all sweeps in `sweeping_logs` table
+- [ ] Multi-sig requires 2 approvals
+- [ ] Alerting when sweeping fails
+
+**Database Tables**:
+- `sweeping_logs`
+
+**Success Criteria**:
+- [ ] Sweeping success rate = 100%
+- [ ] Hot wallet never exceeds $10k for > 6 hours
+
+**Reference**: [PRD_v2.2.md](./PRD_v2.2.md) Section 2.2
+
+---
+
+### 6. Multi-Chain Expansion
+
+**Requirement**: Support 3 chains (MVP): TRON, Solana, BSC
+
+**Functional Requirements**:
+- [ ] TRON: USDT (TRC20) - Priority HIGH
+- [ ] Solana: USDT, USDC (SPL) - Priority HIGH
+- [ ] BSC: USDT, BUSD (BEP20) - Priority MEDIUM
+- [ ] Multi-chain listener orchestrator
+- [ ] Per-chain wallet management
+- [ ] Unified transaction validator
+- [ ] Chain-specific finality handling
+
+**Success Criteria**:
+- [ ] All 3 chains operational
+- [ ] Payment success rate > 98% (per chain)
+
+---
+
+### Updated Implementation Timeline
+
+**Original MVP**: 4-6 weeks
+**PRD v2.2**: **8-10 weeks** (includes all new modules)
+
+**Phased Rollout**:
+- Week 1-2: Foundation + Identity Mapping
+- Week 3-4: Core Payment + Multi-chain (TRON, Solana, BSC)
+- Week 5: Notification Center (Telegram, Zalo, Email, Webhook)
+- Week 6: Treasury & Sweeping (Multi-sig + auto-sweep)
+- Week 7: Off-ramp + Data Retention (Archival + hashing)
+- Week 8: Admin Panel & Polish (Speaker/TTS integration)
+- Week 9: Testing & Security Audit
+- Week 10: Deployment & Pilot Launch
+
+See [PRD_v2.2.md](./PRD_v2.2.md) Section 5 for detailed roadmap.
+
+---
+
+### Updated Tech Stack
+
+**New Dependencies**:
+- Sumsub SDK: KYC & Face Liveness ($0.50/check)
+- node-telegram-bot-api: Telegram integration (Free)
+- Zalo API: Zalo OA/ZNS ($0.01/msg)
+- @sendgrid/mail: Email delivery ($15/mo for 40k emails)
+- Google Cloud TTS: Text-to-Speech ($4/1M chars)
+- aws-sdk (S3 Glacier): Long-term storage ($4/TB/month)
+- Bull: Redis job queue (Free)
+
+---
+
+### Updated Success Criteria (PRD v2.2)
+
+**Technical KPIs** (in addition to original):
+- [ ] KYC Recognition Rate > 95%
+- [ ] Notification Delivery > 95% (all channels)
+- [ ] Speaker Latency < 3 seconds
+- [ ] Sweeping Success Rate = 100%
+- [ ] Data Integrity = 100% (hash verification)
+- [ ] Cache Hit Rate > 90%
+
+**User Experience KPIs**:
+- [ ] First payment time (new user with KYC) < 3 minutes
+- [ ] Returning payment time (no KYC) < 30 seconds
+- [ ] Merchant satisfaction with notifications > 90%
+
+---
+
+### Decision Log (Updated)
+
+| Decision | Reasoning | Trade-off |
+|----------|-----------|-----------|
+| **Multi-chain (TRON + Solana + BSC)** | Wider market coverage, TRON cheapest fees | More complexity, 3x integration work |
+| **Custodial model** | Allows flexible off-ramp strategies | Liability risk, requires insurance |
+| **Self-built KYC caching** | Huge UX improvement (skip KYC for returning) | Development effort, Redis dependency |
+| **Omni-channel notifications** | Ensure merchants never miss payments | Integration complexity, cost |
+| **Infinite data retention** | Compliance insurance, regulatory safety | Storage costs (mitigated with S3 Glacier) |
+| **Scheduled/threshold off-ramp** | Merchant convenience, automation | Requires careful testing, edge cases |
+
+---
+
+**PRD v2.2 Status**: ✅ Design Complete
+**Next Phase**: Implementation (Week 1-2 starting)
+**Last Updated**: 2025-11-19
+
