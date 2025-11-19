@@ -17,11 +17,11 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 | Document | Description |
 |----------|-------------|
 | **[PRD_v2.2.md](./PRD_v2.2.md)** | **🆕 Product Requirements Document v2.2** - Complete requirements with new features |
+| **[PRD_v2.2_ROADMAP.md](./PRD_v2.2_ROADMAP.md)** | **🆕 10-Week Implementation Roadmap** - Detailed week-by-week and day-by-day plan |
 | **[REQUIREMENTS.md](./REQUIREMENTS.md)** | Full functional/non-functional requirements, phased by MVP → Phase 2 → Phase 3 |
 | **[ARCHITECTURE.md](./ARCHITECTURE.md)** | Technical architecture, system design, database schema, API specs + PRD v2.2 updates |
 | **[AML_ENGINE.md](./AML_ENGINE.md)** | **In-house AML compliance engine**: risk scoring, transaction monitoring, sanctions screening |
 | **[STAKEHOLDER_ANALYSIS.md](./STAKEHOLDER_ANALYSIS.md)** | Merchant, User, Product Owner perspectives + business model |
-| **[MVP_ROADMAP.md](./MVP_ROADMAP.md)** | Week-by-week implementation plan (4-6 weeks to launch) |
 | **[TECH_STACK_GOLANG.md](./TECH_STACK_GOLANG.md)** | Golang implementation guide: frameworks, libraries, multi-chain architecture |
 | **[TOURISM_USE_CASES.md](./TOURISM_USE_CASES.md)** | Detailed use cases for hotels, restaurants, tourist services in Da Nang |
 | **[GETTING_STARTED.md](./GETTING_STARTED.md)** | Step-by-step guide for dev team to start implementation |

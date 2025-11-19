@@ -43,11 +43,11 @@ This repository is currently in the **documentation/planning phase**. No code ha
 stable_payment_gateway/
 ├── README.md                      # Project overview and quick summary
 ├── PRD_v2.2.md                   # 🆕 Product Requirements Document v2.2
+├── PRD_v2.2_ROADMAP.md           # 🆕 10-Week Implementation Roadmap (detailed)
 ├── ARCHITECTURE.md                # Technical architecture, system design, database schema
 ├── TECH_STACK_GOLANG.md          # Golang implementation guide (recommended stack)
 ├── REQUIREMENTS.md                # Functional/non-functional requirements (phased)
 ├── AML_ENGINE.md                 # In-house AML compliance engine
-├── MVP_ROADMAP.md                # Week-by-week implementation plan
 ├── GETTING_STARTED.md            # Dev team onboarding and setup guide
 ├── STAKEHOLDER_ANALYSIS.md       # Business model and stakeholder perspectives
 ├── TOURISM_USE_CASES.md          # Specific use cases for Da Nang tourism
@@ -604,10 +604,11 @@ fee := amountVND.Mul(decimal.NewFromFloat(0.01)) // 1% fee
 ### Required Reading (In Order)
 1. **README.md** - Start here for project overview
 2. **PRD_v2.2.md** - Complete product requirements (PRD v2.2)
-3. **REQUIREMENTS.md** - Understand functional requirements
-4. **ARCHITECTURE.md** - Deep dive into system design
-5. **TECH_STACK_GOLANG.md** - Implementation details
-6. **GETTING_STARTED.md** - Setup and development guide
+3. **PRD_v2.2_ROADMAP.md** - 10-week implementation roadmap (detailed day-by-day plan)
+4. **REQUIREMENTS.md** - Understand functional requirements
+5. **ARCHITECTURE.md** - Deep dive into system design
+6. **TECH_STACK_GOLANG.md** - Implementation details
+7. **GETTING_STARTED.md** - Setup and development guide
 
 ### 🆕 PRD v2.2 Module Docs
 - **IDENTITY_MAPPING.md** - Smart wallet→user identity (one-time KYC)
@@ -619,7 +620,6 @@ fee := amountVND.Mul(decimal.NewFromFloat(0.01)) // 1% fee
 - **AML_ENGINE.md** - In-house AML compliance engine
 - **TOURISM_USE_CASES.md** - Understand target market and use cases
 - **STAKEHOLDER_ANALYSIS.md** - Business model and stakeholder needs
-- **MVP_ROADMAP.md** - Implementation timeline and milestones
 
 ---
 
