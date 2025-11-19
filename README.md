@@ -16,11 +16,13 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 |----------|-------------|
 | **[REQUIREMENTS.md](./REQUIREMENTS.md)** | Full functional/non-functional requirements, phased by MVP → Phase 2 → Phase 3 |
 | **[ARCHITECTURE.md](./ARCHITECTURE.md)** | Technical architecture, system design, database schema, API specs |
+| **[AML_ENGINE.md](./AML_ENGINE.md)** | **In-house AML compliance engine**: risk scoring, transaction monitoring, sanctions screening |
 | **[STAKEHOLDER_ANALYSIS.md](./STAKEHOLDER_ANALYSIS.md)** | Merchant, User, Product Owner perspectives + business model |
 | **[MVP_ROADMAP.md](./MVP_ROADMAP.md)** | Week-by-week implementation plan (4-6 weeks to launch) |
 | **[TECH_STACK_GOLANG.md](./TECH_STACK_GOLANG.md)** | Golang implementation guide: frameworks, libraries, multi-chain architecture |
 | **[TOURISM_USE_CASES.md](./TOURISM_USE_CASES.md)** | Detailed use cases for hotels, restaurants, tourist services in Da Nang |
 | **[GETTING_STARTED.md](./GETTING_STARTED.md)** | Step-by-step guide for dev team to start implementation |
+| **[CLAUDE.md](./CLAUDE.md)** | Comprehensive guide for AI assistants working on this project |
 
 ---
 
@@ -33,7 +35,8 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 - ✅ User scans QR → sends crypto (USDT on Solana)
 - ✅ System detects payment → confirms → updates merchant balance
 - ✅ Merchant requests payout → manual approval → VND bank transfer
-- ✅ KYC/AML compliance (manual review)
+- ✅ **In-house AML Engine**: transaction monitoring, risk scoring, sanctions screening
+- ✅ KYC compliance (manual review)
 - ✅ Audit logging for all transactions
 
 **Tech Stack**
@@ -144,6 +147,62 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 - HSM for key management
 - Automated fraud detection
 - Advanced monitoring (Prometheus/Grafana)
+
+---
+
+## 🛡️ AML Compliance (In-House Engine)
+
+### Why Build In-House?
+- **Cost Savings**: 3rd party AML services: $500-5,000/month → In-house: development cost only
+- **Customization**: Vietnam-specific rules, tourism industry patterns, crypto-specific monitoring
+- **Data Control**: Keep sensitive customer data in-house, comply with local regulations
+
+### AML Engine Capabilities
+
+**Customer Risk Scoring**
+- Risk levels: Low, Medium, High, Prohibited
+- Factors: Business type, KYC completeness, transaction volume, geographic risk, PEP status
+- Periodic reviews based on risk level (quarterly/annually)
+
+**Transaction Monitoring**
+- Threshold monitoring (Vietnam: 400M VND legal requirement)
+- Structuring detection (multiple transactions below threshold)
+- Velocity anomalies (sudden spikes in volume/frequency)
+- Rapid cash-out detection (payment → immediate withdrawal)
+- Behavioral analysis (deviation from merchant baseline)
+
+**Sanctions Screening**
+- OFAC SDN List (US Treasury)
+- UN Consolidated Sanctions List
+- EU Sanctions Map
+- Vietnam government blacklists
+- Crypto wallet sanctions (OFAC sanctioned addresses)
+
+**Wallet Risk Analysis (Crypto-Specific)**
+- Mixing service detection (Tornado Cash, etc.)
+- Darknet market exposure
+- Sanctioned wallet addresses
+- Transaction history analysis (3-hop depth)
+
+**Alert Management**
+- Severity levels: LOW, MEDIUM, HIGH, CRITICAL
+- Workflow: Created → Assigned → Under Review → Resolved
+- Auto-prioritization for compliance team
+- False positive tracking and rule tuning
+
+**Regulatory Reporting**
+- Suspicious Activity Reports (SAR)
+- Threshold reports (>400M VND transactions)
+- Monthly/quarterly compliance summaries
+- Audit trail for regulatory inquiries
+
+### Compliance Standards
+- ✅ FATF 40 Recommendations
+- ✅ Vietnam Law on Anti-Money Laundering (2022)
+- ✅ FATF Travel Rule for crypto (≥ $1,000 USD)
+- ✅ Threshold reporting: 400M VND (~$16,000 USD)
+
+**→ Full details: [AML_ENGINE.md](./AML_ENGINE.md)**
 
 ---
 
@@ -280,4 +339,4 @@ Build a legal, compliant stablecoin payment gateway for Vietnam (starting with D
 
 **Built for Vietnam's blockchain future 🇻🇳**
 
-*Last updated: 2025-11-15*
+*Last updated: 2025-11-19*
