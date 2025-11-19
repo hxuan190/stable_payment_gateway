@@ -463,3 +463,73 @@ func (r *travelRuleRepositoryImpl) Delete(ctx context.Context, id string) error 
 	// Return error to prevent accidental deletion
 	return errors.New("deletion of Travel Rule data is not allowed for compliance reasons - use archival instead")
 }
+
+// GetByDateRange retrieves all travel rule data within a date range for SBV reporting
+// Used by SBVReportService for regulatory reporting
+func (r *travelRuleRepositoryImpl) GetByDateRange(startDate, endDate time.Time) ([]*model.TravelRuleData, error) {
+	query := `
+		SELECT id, payment_id,
+		       payer_full_name, payer_wallet_address, payer_id_document,
+		       payer_country, payer_date_of_birth, payer_address,
+		       merchant_full_name, merchant_country, merchant_wallet_address,
+		       merchant_id_document, merchant_business_registration, merchant_address,
+		       transaction_amount, transaction_currency, transaction_purpose,
+		       risk_level, risk_score, screening_status, screening_completed_at,
+		       reported_to_authority, reported_at, report_reference,
+		       retention_policy, archived_at, created_at, updated_at
+		FROM travel_rule_data
+		WHERE created_at >= $1 AND created_at <= $2
+		ORDER BY created_at ASC
+	`
+
+	rows, err := r.db.Query(query, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get travel rule data by date range: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*model.TravelRuleData
+	for rows.Next() {
+		var data model.TravelRuleData
+		err := rows.Scan(
+			&data.ID,
+			&data.PaymentID,
+			&data.PayerFullName,
+			&data.PayerWalletAddress,
+			&data.PayerIDDocument,
+			&data.PayerCountry,
+			&data.PayerDateOfBirth,
+			&data.PayerAddress,
+			&data.MerchantFullName,
+			&data.MerchantCountry,
+			&data.MerchantWalletAddress,
+			&data.MerchantIDDocument,
+			&data.MerchantBusinessRegistration,
+			&data.MerchantAddress,
+			&data.TransactionAmount,
+			&data.TransactionCurrency,
+			&data.TransactionPurpose,
+			&data.RiskLevel,
+			&data.RiskScore,
+			&data.ScreeningStatus,
+			&data.ScreeningCompletedAt,
+			&data.ReportedToAuthority,
+			&data.ReportedAt,
+			&data.ReportReference,
+			&data.RetentionPolicy,
+			&data.ArchivedAt,
+			&data.CreatedAt,
+			&data.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan travel rule data: %w", err)
+		}
+		results = append(results, &data)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating travel rule data: %w", err)
+	}
+
+	return results, nil
+}
