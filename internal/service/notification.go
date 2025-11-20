@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/email"
 	"github.com/sirupsen/logrus"
 )
 
@@ -45,8 +46,9 @@ type WebhookDeliveryAttempt struct {
 
 // NotificationService handles webhook and email notifications
 type NotificationService struct {
-	logger     *logrus.Logger
-	httpClient *http.Client
+	logger        *logrus.Logger
+	httpClient    *http.Client
+	emailProvider *email.SendGridProvider
 
 	// Email configuration (can be nil for MVP without email)
 	emailSender string
@@ -71,8 +73,23 @@ func NewNotificationService(config NotificationServiceConfig) *NotificationServi
 		config.HTTPTimeout = 30 * time.Second
 	}
 
+	// Initialize email provider if API key is configured
+	var emailProvider *email.SendGridProvider
+	if config.EmailAPIKey != "" {
+		emailProvider = email.NewSendGridProvider(email.SendGridConfig{
+			APIKey:    config.EmailAPIKey,
+			FromEmail: config.EmailSender,
+			FromName:  "Stablecoin Payment Gateway",
+			Logger:    config.Logger,
+		})
+		config.Logger.Info("Email provider (SendGrid) initialized")
+	} else {
+		config.Logger.Warn("Email API key not configured - emails will be logged only")
+	}
+
 	return &NotificationService{
-		logger: config.Logger,
+		logger:        config.Logger,
+		emailProvider: emailProvider,
 		httpClient: &http.Client{
 			Timeout: config.HTTPTimeout,
 		},
@@ -271,33 +288,91 @@ type EmailData struct {
 }
 
 // SendEmail sends an email notification
-// This is a basic implementation that can be extended with SendGrid, AWS SES, etc.
+// Integrates with SendGrid for actual email delivery
 func (s *NotificationService) SendEmail(ctx context.Context, emailType EmailType, to string, data map[string]interface{}) error {
-	// For MVP, we'll log emails instead of actually sending them
-	// In production, integrate with SendGrid, AWS SES, or other email service
-
 	s.logger.WithFields(logrus.Fields{
-		"type":      emailType,
-		"to":        to,
-		"data":      data,
-		"sender":    s.emailSender,
-	}).Info("Email notification (MVP: logging only, not actually sent)")
+		"type":   emailType,
+		"to":     to,
+		"sender": s.emailSender,
+	}).Info("Preparing email notification")
 
-	// TODO: Implement actual email sending when email service is configured
-	if s.emailAPIKey != "" {
-		// Example: integrate with SendGrid
-		// return s.sendViaSendGrid(ctx, emailType, to, data)
+	// Map EmailType to TemplateType
+	var templateType email.TemplateType
+	switch emailType {
+	case EmailTypePaymentConfirmation:
+		templateType = email.TemplatePaymentConfirmation
+	case EmailTypePayoutApproved:
+		templateType = email.TemplatePayoutApproved
+	case EmailTypePayoutCompleted:
+		templateType = email.TemplatePayoutCompleted
+	case EmailTypeDailySettlement:
+		templateType = email.TemplateDailySettlement
+	case EmailTypeKYCApproved:
+		templateType = email.TemplateKYCApproved
+	case EmailTypeKYCRejected:
+		templateType = email.TemplateKYCRejected
+	default:
+		return fmt.Errorf("unsupported email type: %s", emailType)
 	}
+
+	// Get template
+	template := email.GetTemplate(templateType)
+	if template == nil {
+		return fmt.Errorf("template not found for type: %s", emailType)
+	}
+
+	// Render email from template
+	renderedEmail, err := email.RenderTemplate(template, data)
+	if err != nil {
+		s.logger.WithFields(logrus.Fields{
+			"type":  emailType,
+			"to":    to,
+			"error": err,
+		}).Error("Failed to render email template")
+		return fmt.Errorf("failed to render email template: %w", err)
+	}
+
+	// Set recipient
+	renderedEmail.To = to
+
+	// If email provider is configured, send via SendGrid
+	if s.emailProvider != nil {
+		err := s.emailProvider.Send(ctx, renderedEmail)
+		if err != nil {
+			s.logger.WithFields(logrus.Fields{
+				"type":  emailType,
+				"to":    to,
+				"error": err,
+			}).Error("Failed to send email via SendGrid")
+			return fmt.Errorf("failed to send email: %w", err)
+		}
+
+		s.logger.WithFields(logrus.Fields{
+			"type":    emailType,
+			"to":      to,
+			"subject": renderedEmail.Subject,
+		}).Info("Email sent successfully via SendGrid")
+		return nil
+	}
+
+	// If no email provider, just log (development/testing mode)
+	s.logger.WithFields(logrus.Fields{
+		"type":    emailType,
+		"to":      to,
+		"subject": renderedEmail.Subject,
+		"data":    data,
+	}).Info("Email notification (development mode: logging only, not actually sent)")
 
 	return nil
 }
 
 // SendPaymentConfirmationEmail sends email when payment is confirmed
-func (s *NotificationService) SendPaymentConfirmationEmail(ctx context.Context, merchantEmail string, paymentID string, amount string) error {
+func (s *NotificationService) SendPaymentConfirmationEmail(ctx context.Context, merchantEmail string, paymentID string, amount string, currency string) error {
 	data := map[string]interface{}{
 		"payment_id": paymentID,
 		"amount":     amount,
-		"timestamp":  time.Now().Format(time.RFC3339),
+		"currency":   currency,
+		"timestamp":  email.FormatTimestamp(time.Now()),
 	}
 	return s.SendEmail(ctx, EmailTypePaymentConfirmation, merchantEmail, data)
 }
@@ -307,7 +382,7 @@ func (s *NotificationService) SendPayoutApprovedEmail(ctx context.Context, merch
 	data := map[string]interface{}{
 		"payout_id": payoutID,
 		"amount":    amount,
-		"timestamp": time.Now().Format(time.RFC3339),
+		"timestamp": email.FormatTimestamp(time.Now()),
 	}
 	return s.SendEmail(ctx, EmailTypePayoutApproved, merchantEmail, data)
 }
@@ -318,13 +393,17 @@ func (s *NotificationService) SendPayoutCompletedEmail(ctx context.Context, merc
 		"payout_id":        payoutID,
 		"amount":           amount,
 		"reference_number": referenceNumber,
-		"timestamp":        time.Now().Format(time.RFC3339),
+		"timestamp":        email.FormatTimestamp(time.Now()),
 	}
 	return s.SendEmail(ctx, EmailTypePayoutCompleted, merchantEmail, data)
 }
 
 // SendDailySettlementReport sends daily settlement report to ops team
 func (s *NotificationService) SendDailySettlementReport(ctx context.Context, opsEmail string, reportData map[string]interface{}) error {
+	// Ensure timestamp is formatted
+	if _, ok := reportData["timestamp"]; !ok {
+		reportData["timestamp"] = email.FormatTimestamp(time.Now())
+	}
 	return s.SendEmail(ctx, EmailTypeDailySettlement, opsEmail, reportData)
 }
 
@@ -333,7 +412,7 @@ func (s *NotificationService) SendKYCApprovedEmail(ctx context.Context, merchant
 	data := map[string]interface{}{
 		"merchant_id": merchantID,
 		"api_key":     apiKey,
-		"timestamp":   time.Now().Format(time.RFC3339),
+		"timestamp":   email.FormatTimestamp(time.Now()),
 	}
 	return s.SendEmail(ctx, EmailTypeKYCApproved, merchantEmail, data)
 }
@@ -343,7 +422,107 @@ func (s *NotificationService) SendKYCRejectedEmail(ctx context.Context, merchant
 	data := map[string]interface{}{
 		"merchant_id": merchantID,
 		"reason":      reason,
-		"timestamp":   time.Now().Format(time.RFC3339),
+		"timestamp":   email.FormatTimestamp(time.Now()),
 	}
 	return s.SendEmail(ctx, EmailTypeKYCRejected, merchantEmail, data)
+}
+
+// SendTreasuryAlertEmail sends email when treasury threshold is triggered
+func (s *NotificationService) SendTreasuryAlertEmail(ctx context.Context, opsEmails []string, alertType string, walletAddress string, balance string, threshold string, recommendedAction string) error {
+	data := map[string]interface{}{
+		"alert_type":         alertType,
+		"wallet_address":     walletAddress,
+		"balance":            balance,
+		"threshold":          threshold,
+		"recommended_action": recommendedAction,
+		"timestamp":          email.FormatTimestamp(time.Now()),
+	}
+
+	// Send to all ops team emails
+	for _, opsEmail := range opsEmails {
+		// Map to treasury alert email type (need to add to EmailType)
+		templateType := email.TemplateTreasuryAlert
+		template := email.GetTemplate(templateType)
+		if template == nil {
+			return fmt.Errorf("template not found for treasury alert")
+		}
+
+		renderedEmail, err := email.RenderTemplate(template, data)
+		if err != nil {
+			s.logger.WithFields(logrus.Fields{
+				"to":    opsEmail,
+				"error": err,
+			}).Error("Failed to render treasury alert email template")
+			continue
+		}
+
+		renderedEmail.To = opsEmail
+
+		if s.emailProvider != nil {
+			if err := s.emailProvider.Send(ctx, renderedEmail); err != nil {
+				s.logger.WithFields(logrus.Fields{
+					"to":    opsEmail,
+					"error": err,
+				}).Error("Failed to send treasury alert email")
+				// Continue to send to other recipients even if one fails
+				continue
+			}
+		} else {
+			s.logger.WithFields(logrus.Fields{
+				"to":      opsEmail,
+				"subject": renderedEmail.Subject,
+			}).Info("Treasury alert email (development mode: logging only)")
+		}
+	}
+
+	return nil
+}
+
+// SendComplianceAlertEmail sends email when compliance issue is detected
+func (s *NotificationService) SendComplianceAlertEmail(ctx context.Context, opsEmails []string, alertType string, merchantID string, details string, requiredAction string) error {
+	data := map[string]interface{}{
+		"alert_type":      alertType,
+		"merchant_id":     merchantID,
+		"details":         details,
+		"required_action": requiredAction,
+		"timestamp":       email.FormatTimestamp(time.Now()),
+	}
+
+	// Send to all ops team emails
+	for _, opsEmail := range opsEmails {
+		templateType := email.TemplateComplianceAlert
+		template := email.GetTemplate(templateType)
+		if template == nil {
+			return fmt.Errorf("template not found for compliance alert")
+		}
+
+		renderedEmail, err := email.RenderTemplate(template, data)
+		if err != nil {
+			s.logger.WithFields(logrus.Fields{
+				"to":    opsEmail,
+				"error": err,
+			}).Error("Failed to render compliance alert email template")
+			continue
+		}
+
+		renderedEmail.To = opsEmail
+
+		if s.emailProvider != nil {
+			if err := s.emailProvider.Send(ctx, renderedEmail); err != nil {
+				s.logger.WithFields(logrus.Fields{
+					"to":    opsEmail,
+					"error": err,
+				}).Error("Failed to send compliance alert email")
+				// Continue to send to other recipients even if one fails
+				continue
+			}
+		} else {
+			s.logger.WithFields(logrus.Fields{
+				"to":      opsEmail,
+				"subject": renderedEmail.Subject,
+			}).Info("Compliance alert email (development mode: logging only)")
+		}
+	}
+
+	return nil
 }
