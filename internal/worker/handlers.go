@@ -309,3 +309,57 @@ func (s *Server) handleDailySettlementReport(ctx context.Context, task *asynq.Ta
 
 	return nil
 }
+
+// handleDailyReconciliation processes daily solvency check jobs
+// This verifies that the platform is solvent: Assets >= Liabilities
+func (s *Server) handleDailyReconciliation(ctx context.Context, task *asynq.Task) error {
+	logger.Info("Starting daily reconciliation audit", logger.Fields{
+		"started_at": time.Now(),
+	})
+
+	startTime := time.Now()
+
+	// Run reconciliation
+	err := s.reconciliationService.PerformDailyReconciliation(ctx)
+
+	duration := time.Since(startTime)
+
+	if err != nil {
+		logger.Error("Daily reconciliation failed", err, logger.Fields{
+			"duration_seconds": duration.Seconds(),
+		})
+
+		// Check if this is a critical deficit error
+		if err.Error() != "" && err.Error() != "" {
+			// This is critical - the task should fail so alerts are triggered
+			return fmt.Errorf("CRITICAL: %w", err)
+		}
+
+		// Non-critical error, just log
+		return err
+	}
+
+	// Get the latest reconciliation result to log it
+	reconLog, err := s.reconciliationService.GetLatestReconciliation(ctx)
+	if err != nil {
+		logger.Warn("Failed to retrieve reconciliation result", logger.Fields{
+			"error": err.Error(),
+		})
+	} else {
+		logger.Info("Daily reconciliation completed successfully", logger.Fields{
+			"status":               reconLog.Status,
+			"total_assets_vnd":     reconLog.TotalAssetsVND.String(),
+			"total_liabilities_vnd": reconLog.TotalLiabilitiesVND.String(),
+			"difference_vnd":       reconLog.DifferenceVND.String(),
+			"alert_triggered":      reconLog.AlertTriggered,
+			"duration_seconds":     duration.Seconds(),
+		})
+
+		// Log asset breakdown for transparency
+		if reconLog.AssetBreakdown != nil {
+			logger.Info("Asset breakdown", reconLog.AssetBreakdown)
+		}
+	}
+
+	return nil
+}

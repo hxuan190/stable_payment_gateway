@@ -16,19 +16,20 @@ import (
 
 // Server represents the worker server
 type Server struct {
-	server           *asynq.Server
-	mux              *asynq.ServeMux
-	scheduler        *asynq.Scheduler
-	db               *sql.DB
-	cache            cache.Cache
-	solanaClient     *solana.Client
-	solanaWallet     *solana.Wallet
-	paymentService   *service.PaymentService
-	notificationSvc  *service.NotificationService
-	merchantRepo     repository.MerchantRepository
-	paymentRepo      repository.PaymentRepository
-	payoutRepo       repository.PayoutRepository
-	walletBalanceRepo repository.WalletBalanceRepository
+	server               *asynq.Server
+	mux                  *asynq.ServeMux
+	scheduler            *asynq.Scheduler
+	db                   *sql.DB
+	cache                cache.Cache
+	solanaClient         *solana.Client
+	solanaWallet         *solana.Wallet
+	paymentService       *service.PaymentService
+	notificationSvc      *service.NotificationService
+	reconciliationService *service.ReconciliationService
+	merchantRepo         repository.MerchantRepository
+	paymentRepo          repository.PaymentRepository
+	payoutRepo           repository.PayoutRepository
+	walletBalanceRepo    repository.WalletBalanceRepository
 }
 
 // ServerConfig holds configuration for the worker server
@@ -108,10 +109,11 @@ func NewServer(cfg *ServerConfig) *Server {
 	balanceRepo := repository.NewBalanceRepository(cfg.DB)
 	auditRepo := repository.NewAuditRepository(cfg.DB)
 	walletBalanceRepo := repository.NewWalletBalanceRepository(cfg.DB)
+	reconciliationRepo := repository.NewReconciliationRepository(cfg.DB)
 
 	// Initialize services
 	exchangeRateService := service.NewExchangeRateService(cfg.Cache)
-	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo)
+	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, cfg.DB)
 	notificationService := service.NewNotificationService(merchantRepo, auditRepo)
 	paymentService := service.NewPaymentService(
 		paymentRepo,
@@ -121,21 +123,30 @@ func NewServer(cfg *ServerConfig) *Server {
 		notificationService,
 		auditRepo,
 	)
+	reconciliationService := service.NewReconciliationService(
+		cfg.DB,
+		ledgerService,
+		exchangeRateService,
+		reconciliationRepo,
+		balanceRepo,
+		logger.NewLogger(),
+	)
 
 	server := &Server{
-		server:            srv,
-		mux:               asynq.NewServeMux(),
-		scheduler:         scheduler,
-		db:                cfg.DB,
-		cache:             cfg.Cache,
-		solanaClient:      cfg.SolanaClient,
-		solanaWallet:      cfg.SolanaWallet,
-		paymentService:    paymentService,
-		notificationSvc:   notificationService,
-		merchantRepo:      merchantRepo,
-		paymentRepo:       paymentRepo,
-		payoutRepo:        payoutRepo,
-		walletBalanceRepo: walletBalanceRepo,
+		server:                srv,
+		mux:                   asynq.NewServeMux(),
+		scheduler:             scheduler,
+		db:                    cfg.DB,
+		cache:                 cfg.Cache,
+		solanaClient:          cfg.SolanaClient,
+		solanaWallet:          cfg.SolanaWallet,
+		paymentService:        paymentService,
+		notificationSvc:       notificationService,
+		reconciliationService: reconciliationService,
+		merchantRepo:          merchantRepo,
+		paymentRepo:           paymentRepo,
+		payoutRepo:            payoutRepo,
+		walletBalanceRepo:     walletBalanceRepo,
 	}
 
 	// Register handlers
@@ -161,12 +172,16 @@ func (s *Server) registerHandlers() {
 	// Register daily settlement report handler
 	s.mux.HandleFunc(TypeDailySettlementReport, s.handleDailySettlementReport)
 
+	// Register daily reconciliation handler
+	s.mux.HandleFunc(TypeDailyReconciliation, s.handleDailyReconciliation)
+
 	logger.Info("Worker handlers registered", logger.Fields{
 		"handlers": []string{
 			TypeWebhookDelivery,
 			TypePaymentExpiry,
 			TypeBalanceCheck,
 			TypeDailySettlementReport,
+			TypeDailyReconciliation,
 		},
 	})
 }
@@ -212,6 +227,20 @@ func (s *Server) scheduleTasks() {
 	} else {
 		logger.Info("Scheduled daily settlement report task", logger.Fields{
 			"schedule": "daily at 8 AM",
+		})
+	}
+
+	// Schedule daily reconciliation at midnight (verify solvency)
+	_, err = s.scheduler.Register(
+		"0 0 * * *", // Daily at midnight (00:00)
+		asynq.NewTask(TypeDailyReconciliation, []byte(`{}`)),
+		asynq.Queue("periodic"),
+	)
+	if err != nil {
+		logger.Error("Failed to schedule daily reconciliation task", err)
+	} else {
+		logger.Info("Scheduled daily reconciliation task", logger.Fields{
+			"schedule": "daily at midnight",
 		})
 	}
 }
