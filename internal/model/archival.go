@@ -31,8 +31,8 @@ type ArchivedRecord struct {
 	ID uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
 
 	// Original Record Information
-	OriginalID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_table_original" json:"original_id"`
-	TableName  string    `gorm:"type:varchar(100);not null;uniqueIndex:idx_table_original;index" json:"table_name"`
+	OriginalID        uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_table_original" json:"original_id"`
+	OriginalTableName string    `gorm:"type:varchar(100);not null;uniqueIndex:idx_table_original;index;column:table_name" json:"table_name"`
 
 	// Archive Storage Information
 	ArchivePath  string       `gorm:"type:varchar(500);not null;index" json:"archive_path"`
@@ -134,8 +134,8 @@ type TransactionHash struct {
 	ID uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
 
 	// Hash Chain Information
-	TableName    string    `gorm:"type:varchar(100);not null;uniqueIndex:idx_table_record" json:"table_name"`
-	RecordID     uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_table_record" json:"record_id"`
+	SourceTableName string    `gorm:"type:varchar(100);not null;uniqueIndex:idx_table_record;column:table_name" json:"table_name"`
+	RecordID        uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_table_record" json:"record_id"`
 	DataHash     string    `gorm:"type:varchar(64);not null;index" json:"data_hash"`      // SHA-256 of record
 	PreviousHash sql.NullString `gorm:"type:varchar(64);index" json:"previous_hash,omitempty"` // Hash of previous record
 

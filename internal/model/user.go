@@ -8,16 +8,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KYCStatus represents the KYC verification status
-type KYCStatus string
-
-const (
-	KYCStatusPending    KYCStatus = "pending"
-	KYCStatusInProgress KYCStatus = "in_progress"
-	KYCStatusApproved   KYCStatus = "approved"
-	KYCStatusRejected   KYCStatus = "rejected"
-	KYCStatusExpired    KYCStatus = "expired"
-)
+// Note: KYCStatus and its constants are defined in merchant.go
+// to avoid duplication
 
 // RiskLevel represents the user's risk assessment level
 type RiskLevel string
