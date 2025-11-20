@@ -329,3 +329,146 @@ func TestIsBlockedFlag(t *testing.T) {
 		})
 	}
 }
+
+// MockPaymentRepository is a mock implementation of payment repository
+type MockPaymentRepository struct {
+	mock.Mock
+}
+
+func (m *MockPaymentRepository) CountByAddressAndWindow(fromAddress string, window time.Duration) (int64, error) {
+	args := m.Called(fromAddress, window)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockPaymentRepository) Create(payment *model.Payment) error {
+	args := m.Called(payment)
+	return args.Error(0)
+}
+
+func (m *MockPaymentRepository) GetByID(id string) (*model.Payment, error) {
+	args := m.Called(id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Payment), args.Error(1)
+}
+
+func (m *MockPaymentRepository) GetByTxHash(txHash string) (*model.Payment, error) {
+	args := m.Called(txHash)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Payment), args.Error(1)
+}
+
+func (m *MockPaymentRepository) GetByPaymentReference(reference string) (*model.Payment, error) {
+	args := m.Called(reference)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Payment), args.Error(1)
+}
+
+func (m *MockPaymentRepository) UpdateStatus(id string, status model.PaymentStatus) error {
+	args := m.Called(id, status)
+	return args.Error(0)
+}
+
+func (m *MockPaymentRepository) Update(payment *model.Payment) error {
+	args := m.Called(payment)
+	return args.Error(0)
+}
+
+func (m *MockPaymentRepository) ListByMerchant(merchantID string, limit, offset int) ([]*model.Payment, error) {
+	args := m.Called(merchantID, limit, offset)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.Payment), args.Error(1)
+}
+
+func (m *MockPaymentRepository) GetExpiredPayments() ([]*model.Payment, error) {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.Payment), args.Error(1)
+}
+
+func TestValidateTransaction_VelocityLimitExceeded(t *testing.T) {
+	trmClient := new(MockTRMLabsClient)
+	auditRepo := new(MockAuditLogRepository)
+	paymentRepo := new(MockPaymentRepository)
+	log := logger.NewLogger()
+
+	service := &amlServiceImpl{
+		trmClient:            trmClient,
+		auditRepo:            auditRepo,
+		paymentRepo:          paymentRepo,
+		logger:               log,
+		riskScoreThreshold:   80,
+		autoRejectSanctioned: true,
+	}
+
+	ctx := context.Background()
+	paymentID := uuid.New()
+	fromAddress := "SpammerWallet123"
+	chain := "solana"
+	amount := decimal.NewFromFloat(100)
+
+	// Mock: Wallet has already made 10 transactions in 24h (at the limit)
+	paymentRepo.On("CountByAddressAndWindow", fromAddress, 24*time.Hour).Return(int64(10), nil)
+
+	err := service.ValidateTransaction(ctx, paymentID, fromAddress, chain, amount)
+	require.Error(t, err)
+	assert.Equal(t, ErrVelocityLimitExceeded, err)
+
+	paymentRepo.AssertExpectations(t)
+	// TRM Labs should NOT be called since velocity check fails first
+	trmClient.AssertNotCalled(t, "ScreenAddress")
+}
+
+func TestValidateTransaction_VelocityLimitBelowThreshold(t *testing.T) {
+	trmClient := new(MockTRMLabsClient)
+	auditRepo := new(MockAuditLogRepository)
+	paymentRepo := new(MockPaymentRepository)
+	log := logger.NewLogger()
+
+	service := &amlServiceImpl{
+		trmClient:            trmClient,
+		auditRepo:            auditRepo,
+		paymentRepo:          paymentRepo,
+		logger:               log,
+		riskScoreThreshold:   80,
+		autoRejectSanctioned: true,
+	}
+
+	ctx := context.Background()
+	paymentID := uuid.New()
+	fromAddress := "SafeWallet123"
+	chain := "solana"
+	amount := decimal.NewFromFloat(100)
+
+	// Mock: Wallet has only made 5 transactions in 24h (below limit of 10)
+	paymentRepo.On("CountByAddressAndWindow", fromAddress, 24*time.Hour).Return(int64(5), nil)
+
+	expectedResponse := &trmlabs.ScreeningResponse{
+		Address:      fromAddress,
+		Chain:        chain,
+		RiskScore:    10,
+		IsSanctioned: false,
+		Flags:        []string{},
+		Details:      map[string]string{},
+		ScreenedAt:   time.Now(),
+	}
+
+	trmClient.On("ScreenAddress", ctx, fromAddress, chain).Return(expectedResponse, nil)
+	auditRepo.On("Create", ctx, mock.AnythingOfType("*model.AuditLog")).Return(nil)
+
+	err := service.ValidateTransaction(ctx, paymentID, fromAddress, chain, amount)
+	require.NoError(t, err)
+
+	paymentRepo.AssertExpectations(t)
+	trmClient.AssertExpectations(t)
+	auditRepo.AssertExpectations(t)
+}
