@@ -16,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/web3"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 )
 
@@ -34,6 +35,8 @@ var (
 	ErrAmountMismatch = errors.New("payment amount mismatch")
 	// ErrInvalidChain is returned when chain is not supported
 	ErrInvalidChain = errors.New("invalid or unsupported blockchain chain")
+	// ErrInvalidSignature is returned when wallet signature verification fails
+	ErrInvalidSignature = errors.New("invalid wallet signature: proof of ownership failed")
 )
 
 const (
@@ -75,6 +78,7 @@ type PaymentService struct {
 	merchantRepo        MerchantRepository
 	exchangeRateService ExchangeRateProvider
 	complianceService   ComplianceService // For pre-payment validation
+	amlService          AMLService        // For wallet sanctions screening (shift-left security)
 	redisClient         *redis.Client     // For publishing real-time events
 	logger              *logrus.Logger
 	defaultChain        model.Chain
@@ -100,6 +104,7 @@ func NewPaymentService(
 	merchantRepo MerchantRepository,
 	exchangeRateService ExchangeRateProvider,
 	complianceService ComplianceService, // Optional: for compliance checks
+	amlService AMLService,               // Optional: for AML pre-screening
 	config PaymentServiceConfig,
 	logger *logrus.Logger,
 ) *PaymentService {
@@ -128,6 +133,7 @@ func NewPaymentService(
 		merchantRepo:        merchantRepo,
 		exchangeRateService: exchangeRateService,
 		complianceService:   complianceService,
+		amlService:          amlService,
 		redisClient:         config.RedisClient,
 		logger:              logger,
 		defaultChain:        defaultChain,
@@ -147,6 +153,10 @@ type CreatePaymentRequest struct {
 	OrderID     string
 	Description string
 	CallbackURL string
+	// Proof of Ownership (optional, required for unhosted wallets > $1000)
+	FromAddress   string // Solana wallet address (Base58)
+	Signature     string // Base64-encoded signature proving wallet ownership
+	SignedMessage string // The message that was signed (for verification)
 }
 
 // CreatePayment creates a new payment request
@@ -202,6 +212,96 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req CreatePaymentReq
 	// Calculate crypto amount (VND / exchange rate)
 	amountCrypto := req.AmountVND.Div(exchangeRate).Round(6) // Round to 6 decimals for USDT/USDC
 
+	// Generate payment ID early (needed for AML screening and signature verification)
+	paymentID := uuid.New().String()
+
+	// SECURITY: AML PRE-SCREENING (Shift-Left Security)
+	// Screen wallet for sanctions BEFORE creating payment record
+	// This prevents sanctioned wallets from ever creating a record in the payments table
+	if req.FromAddress != "" && s.amlService != nil {
+		s.logger.WithFields(logrus.Fields{
+			"merchant_id":  req.MerchantID,
+			"from_address": req.FromAddress,
+			"chain":        chain,
+			"amount_usd":   amountCrypto.String(),
+		}).Info("Pre-screening wallet for AML/sanctions compliance")
+
+		// Parse payment ID for AML service
+		paymentUUID, err := uuid.Parse(paymentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse payment ID: %w", err)
+		}
+
+		// Perform AML sanctions screening
+		err = s.amlService.ValidateTransaction(ctx, paymentUUID, req.FromAddress, string(chain), amountCrypto)
+		if err != nil {
+			s.logger.WithFields(logrus.Fields{
+				"merchant_id":  req.MerchantID,
+				"from_address": req.FromAddress,
+				"error":        err.Error(),
+			}).Warn("AML pre-screening failed: sanctioned or high-risk wallet detected")
+
+			// Reject payment creation immediately - do NOT create database record
+			return nil, fmt.Errorf("AML pre-screening failed: %w", err)
+		}
+
+		s.logger.WithFields(logrus.Fields{
+			"merchant_id":  req.MerchantID,
+			"from_address": req.FromAddress,
+		}).Info("AML pre-screening passed: wallet is not sanctioned")
+	}
+
+	// SECURITY: Verify wallet signature if FromAddress is provided (Proof of Ownership)
+	// This prevents wallet address spoofing for unhosted wallet transactions
+	if req.FromAddress != "" {
+
+		// Signature is REQUIRED if FromAddress is provided
+		if req.Signature == "" {
+			s.logger.WithFields(logrus.Fields{
+				"merchant_id":  req.MerchantID,
+				"from_address": req.FromAddress,
+			}).Warn("Signature required when FromAddress is provided")
+			return nil, fmt.Errorf("signature required for proof of wallet ownership when from_address is provided")
+		}
+
+		// Verify signature using Solana Ed25519 verification
+		// If SignedMessage is provided, verify against that specific message
+		// Otherwise, generate and verify against standard challenge message
+		var isValid bool
+		var verifyErr error
+
+		if req.SignedMessage != "" {
+			// Verify custom signed message
+			isValid, verifyErr = web3.VerifySolanaSignature(req.FromAddress, req.SignedMessage, req.Signature)
+		} else {
+			// Verify using standard payment challenge message
+			isValid, verifyErr = web3.VerifyPaymentSignature(req.FromAddress, paymentID, req.Signature)
+		}
+
+		if verifyErr != nil {
+			s.logger.WithFields(logrus.Fields{
+				"merchant_id":  req.MerchantID,
+				"from_address": req.FromAddress,
+				"error":        verifyErr.Error(),
+			}).Error("Signature verification failed")
+			return nil, fmt.Errorf("%w: %v", ErrInvalidSignature, verifyErr)
+		}
+
+		if !isValid {
+			s.logger.WithFields(logrus.Fields{
+				"merchant_id":  req.MerchantID,
+				"from_address": req.FromAddress,
+			}).Warn("Invalid signature: proof of ownership failed")
+			return nil, ErrInvalidSignature
+		}
+
+		s.logger.WithFields(logrus.Fields{
+			"merchant_id":  req.MerchantID,
+			"from_address": req.FromAddress,
+			"payment_id":   paymentID,
+		}).Info("Wallet signature verified successfully (Proof of Ownership)")
+	}
+
 	// COMPLIANCE CHECK: Validate monthly limits BEFORE creating payment
 	if s.complianceService != nil {
 		// Calculate USD amount for compliance check
@@ -226,8 +326,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req CreatePaymentReq
 		}).Info("Compliance check passed: monthly limit OK")
 	}
 
-	// Generate payment ID and reference
-	paymentID := uuid.New().String()
+	// Generate payment reference (payment ID already generated earlier for signature verification)
 	paymentReference, err := s.generatePaymentReference()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate payment reference: %w", err)
