@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	solanasdk "github.com/gagliardetto/solana-go"
+	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/bsc"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
@@ -54,6 +55,7 @@ func main() {
 	paymentRepo := repository.NewPaymentRepository(db, appLogger)
 	merchantRepo := repository.NewMerchantRepository(db, appLogger)
 	auditRepo := repository.NewAuditLogRepository(db, appLogger)
+	complianceAlertRepo := repository.NewComplianceAlertRepository(db)
 
 	// Initialize services
 	notificationService := service.NewNotificationService(service.NotificationServiceConfig{
@@ -67,6 +69,17 @@ func main() {
 	amlService := initializeAMLService(cfg, auditRepo, paymentRepo, appLogger)
 
 	appLogger.Info("AML screening service initialized")
+
+	// Initialize compliance alert service
+	complianceAlertService := service.NewComplianceAlertService(service.ComplianceAlertServiceConfig{
+		ComplianceAlertRepo: complianceAlertRepo,
+		PaymentRepo:         paymentRepo,
+		NotificationService: notificationService,
+		Logger:              appLogger,
+		OpsTeamEmails:       cfg.OpsTeamEmails, // From config
+	})
+
+	appLogger.Info("Compliance alert service initialized")
 
 	// Initialize Solana wallet
 	if cfg.Solana.WalletPrivateKey == "" {
@@ -95,6 +108,7 @@ func main() {
 	confirmationCallback := createPaymentConfirmationCallback(
 		paymentService,
 		amlService,
+		complianceAlertService,
 		appLogger,
 	)
 
@@ -318,6 +332,7 @@ func initializePaymentService(
 func createPaymentConfirmationCallback(
 	paymentService *service.PaymentService,
 	amlService service.AMLService,
+	complianceAlertService *service.ComplianceAlertService,
 	appLogger *logrus.Logger,
 ) func(paymentID string, txHash string, amount decimal.Decimal, tokenMint string) error {
 	return func(paymentID string, txHash string, amount decimal.Decimal, tokenMint string) error {
@@ -389,12 +404,39 @@ func createPaymentConfirmationCallback(
 						"flags":        result.Flags,
 					}).Error("SANCTIONED ADDRESS DETECTED - Manual review required")
 
-					// TODO: Flag payment for manual review
-					// TODO: Send alert to compliance team
-					// TODO: Consider reversing payment or freezing funds
+					// Create compliance alert for sanctioned address
+					paymentUUID, err := uuid.Parse(paymentID)
+					if err != nil {
+						appLogger.WithError(err).Error("Failed to parse payment ID for compliance alert")
+					} else {
+						// Prepare evidence from AML screening
+						evidence := map[string]interface{}{
+							"screening_provider": "TRM Labs",
+							"risk_score":         result.RiskScore,
+							"flags":              result.Flags,
+							"sanctioned":         result.IsSanctioned,
+							"screened_at":        time.Now().Format(time.RFC3339),
+						}
 
-					// For now, log the incident
-					appLogger.Warn("Payment from sanctioned address was confirmed - immediate review required")
+						// Create sanctioned address alert
+						alert, err := complianceAlertService.CreateSanctionedAddressAlert(
+							ctx,
+							paymentUUID,
+							fromAddress,
+							payment.Chain,
+							result.RiskScore,
+							result.Flags,
+							evidence,
+						)
+						if err != nil {
+							appLogger.WithError(err).Error("Failed to create sanctioned address alert")
+						} else {
+							appLogger.WithFields(logrus.Fields{
+								"alert_id":   alert.ID,
+								"payment_id": paymentID,
+							}).Warn("Sanctioned address alert created and compliance team notified")
+						}
+					}
 				} else if result.RiskScore >= 80 {
 					appLogger.WithFields(logrus.Fields{
 						"payment_id":   paymentID,
@@ -403,7 +445,40 @@ func createPaymentConfirmationCallback(
 						"flags":        result.Flags,
 					}).Warn("HIGH-RISK ADDRESS DETECTED - Review recommended")
 
-					// TODO: Flag for review
+					// Create compliance alert for high-risk address
+					paymentUUID, err := uuid.Parse(paymentID)
+					if err != nil {
+						appLogger.WithError(err).Error("Failed to parse payment ID for compliance alert")
+					} else {
+						// Prepare evidence from AML screening
+						evidence := map[string]interface{}{
+							"screening_provider": "TRM Labs",
+							"risk_score":         result.RiskScore,
+							"flags":              result.Flags,
+							"sanctioned":         result.IsSanctioned,
+							"screened_at":        time.Now().Format(time.RFC3339),
+						}
+
+						// Create high-risk address alert
+						alert, err := complianceAlertService.CreateHighRiskAlert(
+							ctx,
+							paymentUUID,
+							fromAddress,
+							payment.Chain,
+							result.RiskScore,
+							result.Flags,
+							evidence,
+						)
+						if err != nil {
+							appLogger.WithError(err).Error("Failed to create high-risk address alert")
+						} else {
+							appLogger.WithFields(logrus.Fields{
+								"alert_id":   alert.ID,
+								"payment_id": paymentID,
+								"severity":   alert.Severity,
+							}).Info("High-risk address alert created")
+						}
+					}
 				} else {
 					appLogger.WithFields(logrus.Fields{
 						"payment_id":   paymentID,

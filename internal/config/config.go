@@ -26,9 +26,10 @@ type Config struct {
 	Email        EmailConfig
 	Storage      StorageConfig
 	AWS          AWSConfig
-	TRM          TRMConfig
-	TRMLabs      TRMConfig // Alias for TRM
-	JWT          JWTConfig
+	TRM           TRMConfig
+	TRMLabs       TRMConfig  // Alias for TRM
+	JWT           JWTConfig
+	OpsTeamEmails []string   // Email addresses for ops team alerts
 }
 
 // APIConfig contains API server configuration
@@ -290,6 +291,7 @@ func Load() (*Config, error) {
 			Secret:          getEnv("JWT_SECRET", ""),
 			ExpirationHours: getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
 		},
+		OpsTeamEmails: getEnvAsSlice("OPS_TEAM_EMAILS", []string{}),
 	}
 
 	// Validate configuration
