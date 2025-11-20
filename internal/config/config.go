@@ -20,6 +20,7 @@ type Config struct {
 	Redis        RedisConfig
 	Solana       SolanaConfig
 	BSC          BSCConfig
+	TRON         TRONConfig
 	ExchangeRate ExchangeRateConfig
 	Security     SecurityConfig
 	Email        EmailConfig
@@ -89,6 +90,20 @@ type BSCConfig struct {
 	ChainID          int64
 	USDTContract     string
 	BUSDContract     string
+}
+
+// TRONConfig contains TRON blockchain configuration
+type TRONConfig struct {
+	RPCURL              string
+	WalletPrivateKey    string
+	WalletAddress       string
+	ColdWalletAddress   string
+	Network             string // mainnet, testnet (shasta, nile)
+	USDTContract        string // TRC20 USDT contract
+	USDCContract        string // TRC20 USDC contract
+	MinConfirmations    int64  // Minimum confirmations (default: 19 for solid block)
+	SweepThresholdUSD   int64  // Hot wallet sweep threshold in USD (default: 10000)
+	SweepIntervalHours  int    // Auto-sweep interval in hours (default: 6)
 }
 
 // ExchangeRateConfig contains exchange rate API configuration
@@ -217,6 +232,18 @@ func Load() (*Config, error) {
 			USDTContract:     getEnv("BSC_USDT_CONTRACT", ""),
 			BUSDContract:     getEnv("BSC_BUSD_CONTRACT", ""),
 		},
+		TRON: TRONConfig{
+			RPCURL:             getEnv("TRON_RPC_URL", "grpc.shasta.trongrid.io:50051"),
+			WalletPrivateKey:   getEnv("TRON_WALLET_PRIVATE_KEY", ""),
+			WalletAddress:      getEnv("TRON_WALLET_ADDRESS", ""),
+			ColdWalletAddress:  getEnv("TRON_COLD_WALLET_ADDRESS", ""),
+			Network:            getEnv("TRON_NETWORK", "testnet"),
+			USDTContract:       getEnv("TRON_USDT_CONTRACT", "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"),
+			USDCContract:       getEnv("TRON_USDC_CONTRACT", "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8"),
+			MinConfirmations:   getEnvAsInt64("TRON_MIN_CONFIRMATIONS", 19),
+			SweepThresholdUSD:  getEnvAsInt64("TRON_SWEEP_THRESHOLD_USD", 10000),
+			SweepIntervalHours: getEnvAsInt("TRON_SWEEP_INTERVAL_HOURS", 6),
+		},
 		ExchangeRate: ExchangeRateConfig{
 			PrimaryAPI:   getEnv("EXCHANGE_RATE_PRIMARY_API", "https://api.coingecko.com/api/v3"),
 			SecondaryAPI: getEnv("EXCHANGE_RATE_SECONDARY_API", "https://api.binance.com/api/v3"),
@@ -315,6 +342,20 @@ func (c *Config) Validate() error {
 	}
 	if c.Solana.WalletAddress == "" {
 		errors = append(errors, "SOLANA_WALLET_ADDRESS is required")
+	}
+
+	// Validate TRON config
+	if c.TRON.RPCURL == "" {
+		errors = append(errors, "TRON_RPC_URL is required")
+	}
+	if c.TRON.WalletAddress == "" {
+		errors = append(errors, "TRON_WALLET_ADDRESS is required")
+	}
+	if c.Environment == "production" && c.TRON.WalletPrivateKey == "" {
+		errors = append(errors, "TRON_WALLET_PRIVATE_KEY is required in production")
+	}
+	if c.Environment == "production" && c.TRON.ColdWalletAddress == "" {
+		errors = append(errors, "TRON_COLD_WALLET_ADDRESS is required in production")
 	}
 
 	if len(errors) > 0 {
