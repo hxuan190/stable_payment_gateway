@@ -624,6 +624,60 @@ CREATE INDEX idx_blockchain_tx_hash ON blockchain_transactions(tx_hash);
 CREATE INDEX idx_blockchain_payment ON blockchain_transactions(payment_id);
 ```
 
+### AML & Compliance Tables
+
+**⚠️ CRITICAL UPDATE (v1.1)**: AML engine now includes comprehensive compliance tables.
+
+**New Tables (Travel Rule & Proof of Ownership)**:
+
+1. **`aml_travel_rule_data`** - IVMS101 compliant storage for transactions ≥ $1,000 USD
+   - Stores originator and beneficiary information (ENCRYPTED PII)
+   - Required by FATF Recommendation 16 (Travel Rule for VASPs)
+   - All PII fields encrypted with AES-256-GCM at application level
+   - See: AML_ENGINE.md lines 723-801
+
+2. **`aml_proof_of_ownership`** - Cryptographic wallet ownership verification
+   - Stores signatures proving wallet ownership for unhosted wallets (Phantom, MetaMask)
+   - Critical compliance evidence when authorities ask: "How do you know this wallet belongs to User X?"
+   - Signature verification using Ed25519 (Solana) or secp256k1 (Ethereum/BSC)
+   - Proof expires after 1 year, requires renewal
+   - See: AML_ENGINE.md lines 803-856
+
+**Core AML Tables** (see `AML_ENGINE.md` for complete schema):
+- `aml_customer_risk_scores` - Merchant risk assessment (low/medium/high/prohibited)
+- `aml_transaction_monitoring` - Real-time transaction monitoring and rule evaluation
+- `aml_alerts` - Alert management (threshold, pattern, sanctions, wallet risks)
+- `aml_cases` - Investigation case management
+- `aml_sanctions_list` - OFAC, UN, EU sanctions data (updated daily)
+- `aml_wallet_screening` - Blockchain wallet risk scores (cached 7 days)
+- `aml_rules` - Configurable monitoring rules (structuring, velocity, etc.)
+- `aml_reports` - Regulatory reports (SAR, threshold reports)
+- `aml_audit_log` - Compliance audit trail
+
+**PII Encryption Requirements**:
+- ❌ **NEVER** store PII in plaintext
+- ✅ **ALWAYS** encrypt PII at application level using AES-256-GCM before INSERT
+- ✅ Encryption key management via AWS KMS or HashiCorp Vault (NOT environment variables in production)
+- ✅ All PII access must be audit logged
+- ✅ Key rotation supported via `encryption_key_version` column
+- See: AML_ENGINE.md lines 1533-2027 for complete encryption implementation guide
+
+**Critical Compliance Notes**:
+1. **Travel Rule Threshold**: $1,000 USD (FATF requirement)
+2. **Data Retention**: 7 years (Vietnam AML law)
+3. **Proof of Ownership**: Valid for 1 year, auto-renewal on expiration
+4. **Wallet Screening Cache**: 7 days TTL (balance security vs. performance)
+5. **SAR Filing**: Within 12 hours of detection (Vietnam requirement)
+
+**Deployment Checklist**:
+- [ ] Generate encryption key: `openssl rand -base64 32`
+- [ ] Store key in AWS KMS / HashiCorp Vault
+- [ ] Set `PII_ENCRYPTION_KEY` environment variable
+- [ ] Test encryption/decryption in staging
+- [ ] Verify all PII fields are encrypted before production deploy
+- [ ] Set up daily sanctions list update cron job
+- [ ] Configure wallet screening API (Chainalysis / TRM Labs)
+
 ---
 
 ## API Endpoints
