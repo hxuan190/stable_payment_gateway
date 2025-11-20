@@ -720,11 +720,146 @@ CREATE INDEX idx_aml_audit_resource ON aml_audit_log(resource_type, resource_id)
 CREATE INDEX idx_aml_audit_created ON aml_audit_log(created_at);
 ```
 
+#### aml_travel_rule_data
+```sql
+-- IVMS101 compliant Travel Rule storage for crypto transactions ≥ $1,000 USD
+-- Reference: FATF Recommendation 16 (Wire Transfer Rule for VASPs)
+CREATE TABLE aml_travel_rule_data (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    payment_id UUID NOT NULL REFERENCES payments(id),
+    transaction_amount_usd DECIMAL(20, 2) NOT NULL,
+    transaction_threshold_met BOOLEAN DEFAULT TRUE, -- TRUE if ≥ $1,000
+
+    -- Originator Information (Sender - ENCRYPTED PII)
+    originator_full_name TEXT NOT NULL, -- AES-256 encrypted
+    originator_wallet_address VARCHAR(255) NOT NULL,
+    originator_account_number TEXT, -- For VASP accounts (encrypted)
+    originator_address_line TEXT, -- Physical address (encrypted)
+    originator_country_code VARCHAR(2),
+    originator_id_number TEXT, -- National ID/Passport (encrypted)
+    originator_id_type VARCHAR(50), -- 'passport', 'national_id', 'drivers_license'
+    originator_id_country VARCHAR(2),
+    originator_date_of_birth DATE, -- Encrypted
+
+    -- Originator VASP Information
+    originator_vasp_name VARCHAR(255), -- e.g., 'Binance', 'Coinbase'
+    originator_vasp_identifier VARCHAR(255), -- LEI or registration number
+    originator_vasp_country VARCHAR(2),
+
+    -- Beneficiary Information (Receiver - our merchant)
+    beneficiary_full_name TEXT NOT NULL, -- AES-256 encrypted (merchant owner)
+    beneficiary_wallet_address VARCHAR(255) NOT NULL, -- Our hot wallet
+    beneficiary_account_number TEXT, -- Merchant account ID (encrypted)
+    beneficiary_address_line TEXT, -- Business address (encrypted)
+    beneficiary_country_code VARCHAR(2) DEFAULT 'VN',
+
+    -- Beneficiary VASP (Us)
+    beneficiary_vasp_name VARCHAR(255) DEFAULT 'Stablecoin Payment Gateway',
+    beneficiary_vasp_identifier VARCHAR(255), -- Our business registration
+    beneficiary_vasp_country VARCHAR(2) DEFAULT 'VN',
+
+    -- Transaction Details
+    blockchain VARCHAR(20) NOT NULL, -- 'solana', 'tron', 'bsc'
+    crypto_currency VARCHAR(10) NOT NULL, -- 'USDT', 'USDC'
+    crypto_amount DECIMAL(20, 8) NOT NULL,
+    tx_hash VARCHAR(255),
+
+    -- Compliance Fields
+    data_source VARCHAR(50) NOT NULL, -- 'kyc_verification', 'vasp_api', 'manual_input'
+    verification_status VARCHAR(30) DEFAULT 'pending', -- 'pending', 'verified', 'failed'
+    verification_method VARCHAR(50), -- 'sumsub_kyc', 'proof_of_ownership', 'vasp_transfer'
+    verified_at TIMESTAMP,
+    verified_by UUID REFERENCES admin_users(id),
+
+    -- Data Retention & Privacy
+    data_hash VARCHAR(64), -- SHA-256 hash for integrity verification
+    encryption_key_version INTEGER DEFAULT 1, -- Track encryption key rotation
+
+    -- Audit
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    -- Constraints
+    CONSTRAINT check_threshold CHECK (transaction_amount_usd >= 1000)
+);
+
+CREATE INDEX idx_travel_payment ON aml_travel_rule_data(payment_id);
+CREATE INDEX idx_travel_originator_wallet ON aml_travel_rule_data(originator_wallet_address);
+CREATE INDEX idx_travel_threshold ON aml_travel_rule_data(transaction_threshold_met);
+CREATE INDEX idx_travel_verification ON aml_travel_rule_data(verification_status);
+CREATE INDEX idx_travel_created ON aml_travel_rule_data(created_at);
+
+-- Comments for PII fields requiring encryption
+COMMENT ON COLUMN aml_travel_rule_data.originator_full_name IS 'ENCRYPTED: AES-256-GCM at application level';
+COMMENT ON COLUMN aml_travel_rule_data.originator_account_number IS 'ENCRYPTED: AES-256-GCM at application level';
+COMMENT ON COLUMN aml_travel_rule_data.originator_address_line IS 'ENCRYPTED: AES-256-GCM at application level';
+COMMENT ON COLUMN aml_travel_rule_data.originator_id_number IS 'ENCRYPTED: AES-256-GCM at application level';
+COMMENT ON COLUMN aml_travel_rule_data.originator_date_of_birth IS 'ENCRYPTED: AES-256-GCM at application level';
+COMMENT ON COLUMN aml_travel_rule_data.beneficiary_full_name IS 'ENCRYPTED: AES-256-GCM at application level';
+COMMENT ON COLUMN aml_travel_rule_data.beneficiary_account_number IS 'ENCRYPTED: AES-256-GCM at application level';
+COMMENT ON COLUMN aml_travel_rule_data.beneficiary_address_line IS 'ENCRYPTED: AES-256-GCM at application level';
+```
+
+#### aml_proof_of_ownership
+```sql
+-- Cryptographic proof that a wallet address belongs to a specific user
+-- Critical for unhosted wallet compliance (Phantom, MetaMask, Trust Wallet)
+CREATE TABLE aml_proof_of_ownership (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID, -- From wallet_identity_mappings or merchant KYC
+    wallet_address VARCHAR(255) NOT NULL,
+    blockchain VARCHAR(20) NOT NULL, -- 'solana', 'tron', 'bsc', 'ethereum'
+
+    -- Cryptographic Proof
+    signed_message TEXT NOT NULL, -- Original message user signed
+    signature TEXT NOT NULL, -- Cryptographic signature (hex encoded)
+    signature_algorithm VARCHAR(50) NOT NULL, -- 'ed25519' (Solana), 'secp256k1' (ETH/BSC)
+    public_key TEXT, -- Public key if applicable
+
+    -- Verification
+    verification_status VARCHAR(30) NOT NULL DEFAULT 'pending', -- 'pending', 'verified', 'failed', 'expired'
+    verified_at TIMESTAMP,
+    verified_by VARCHAR(50) DEFAULT 'system', -- 'system' or admin user ID
+    verification_method VARCHAR(50) NOT NULL, -- 'signature_verification', 'test_transaction'
+
+    -- Additional Context
+    ip_address INET, -- IP when proof was submitted
+    user_agent TEXT,
+    device_fingerprint TEXT, -- Optional: device identification
+
+    -- Expiration & Renewal
+    proof_expires_at TIMESTAMP NOT NULL, -- Proof valid for 1 year
+    renewal_count INTEGER DEFAULT 0, -- Track how many times renewed
+    last_used_at TIMESTAMP, -- Last time this proof was used for verification
+
+    -- Linking to Transactions
+    first_payment_id UUID REFERENCES payments(id), -- First payment with this wallet
+    total_payments_count INTEGER DEFAULT 0, -- Track usage
+
+    -- Audit
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    -- Constraints
+    UNIQUE(wallet_address, blockchain)
+);
+
+CREATE INDEX idx_proof_wallet ON aml_proof_of_ownership(wallet_address, blockchain);
+CREATE INDEX idx_proof_user ON aml_proof_of_ownership(user_id);
+CREATE INDEX idx_proof_status ON aml_proof_of_ownership(verification_status);
+CREATE INDEX idx_proof_expires ON aml_proof_of_ownership(proof_expires_at);
+CREATE INDEX idx_proof_last_used ON aml_proof_of_ownership(last_used_at);
+
+COMMENT ON TABLE aml_proof_of_ownership IS 'Stores cryptographic signatures proving wallet ownership for compliance';
+COMMENT ON COLUMN aml_proof_of_ownership.signed_message IS 'Message format: "I own wallet {address} on {blockchain}. Timestamp: {unix_timestamp}"';
+COMMENT ON COLUMN aml_proof_of_ownership.signature IS 'Hex-encoded cryptographic signature verifiable on-chain or via SDK';
+```
+
 ---
 
 ## 🔄 Integration with Payment Gateway
 
-### Payment Flow with AML Checks
+### Payment Flow with AML Checks (Updated for Travel Rule + Proof of Ownership)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -748,12 +883,29 @@ CREATE INDEX idx_aml_audit_created ON aml_audit_log(created_at);
     ↓
 5. AML PRE-SCREENING (real-time):
    a. Extract wallet address
-   b. Screen wallet (check cache or query API)
-   c. If wallet PROHIBITED: Block transaction, create CRITICAL alert
-   d. If wallet HIGH risk: Create HIGH alert, hold for review
-   e. If wallet MEDIUM/LOW: Proceed
+   b. Check if wallet has Proof of Ownership (aml_proof_of_ownership)
+      - If YES and verified: Mark as "known user", reduce friction
+      - If NO: Flag for identity verification (if > $1,000)
+   c. Screen wallet (check cache or query API)
+      - If wallet PROHIBITED: Block transaction, create CRITICAL alert
+      - If wallet HIGH risk: Create HIGH alert, hold for review
+      - If wallet MEDIUM/LOW: Proceed
     ↓
-6. AML TRANSACTION MONITORING:
+6. TRAVEL RULE CHECK (for transactions ≥ $1,000 USD):
+   a. Calculate USD equivalent of payment
+   b. If amount_usd >= 1000:
+      - Check if originator info exists (from KYC or VASP API)
+      - If NOT exists:
+          * Trigger identity verification flow
+          * Request Proof of Ownership signature
+          * Collect originator PII (name, address, ID)
+          * Block confirmation until verified
+      - If exists:
+          * Create aml_travel_rule_data record (ENCRYPT PII)
+          * Proceed with confirmation
+   c. If amount_usd < 1000: Skip Travel Rule (optional data collection)
+    ↓
+7. AML TRANSACTION MONITORING:
    a. Create aml_transaction_monitoring record
    b. Run all enabled rules against transaction
    c. Calculate transaction risk score
@@ -763,20 +915,211 @@ CREATE INDEX idx_aml_audit_created ON aml_audit_log(created_at);
       - If HIGH/MEDIUM: Create alert, allow confirmation
       - If LOW: Log only
     ↓
-7. Confirm payment (if not blocked)
+8. Confirm payment (if not blocked)
     ↓
-8. Update merchant balance
+9. Update merchant balance
     ↓
-9. Send webhook to merchant
+10. Send webhook to merchant
     ↓
 ┌──────────────────────────────────────────────────────────────┐
 │ BACKGROUND PROCESSING (async)                                 │
 └──────────────────────────────────────────────────────────────┘
     ↓
-10. Update merchant risk score (daily batch)
-11. Generate reports (daily/weekly/monthly)
-12. Update sanctions lists (daily)
-13. Periodic customer reviews (based on risk level)
+11. Update merchant risk score (daily batch)
+12. Generate reports (daily/weekly/monthly)
+13. Update sanctions lists (daily)
+14. Periodic customer reviews (based on risk level)
+15. Travel Rule reporting (monthly - transactions ≥ $1,000)
+```
+
+### Travel Rule Workflow (≥ $1,000 USD Transactions)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ TRAVEL RULE DATA COLLECTION                                   │
+└──────────────────────────────────────────────────────────────┘
+
+USER SCANS QR → SENDS CRYPTO
+    ↓
+Blockchain listener detects transaction
+    ↓
+Calculate USD equivalent: crypto_amount × current_rate
+    ↓
+IF amount_usd >= 1000:
+    ↓
+    ┌─────────────────────────────────────────┐
+    │ SCENARIO 1: Custodial Wallet (Binance)  │
+    └─────────────────────────────────────────┘
+    ↓
+    1. Check if originator_wallet_address is known VASP
+       - Query VASP directory (TRP, CipherTrace, etc.)
+       - If VASP found: Binance, Coinbase, Kraken, etc.
+    ↓
+    2. Request Travel Rule data via VASP API (if available)
+       - Originator name, address, account number
+       - VASP automatically provides data
+    ↓
+    3. Store in aml_travel_rule_data (ENCRYPTED)
+       - data_source: 'vasp_api'
+       - verification_method: 'vasp_transfer'
+    ↓
+    Proceed with payment confirmation
+
+    ┌─────────────────────────────────────────┐
+    │ SCENARIO 2: Unhosted Wallet (Phantom)   │
+    └─────────────────────────────────────────┘
+    ↓
+    1. Check aml_proof_of_ownership for this wallet
+       - If EXISTS and verified and NOT expired:
+           → Retrieve user_id and KYC data
+           → Skip identity verification
+       - If NOT exists or expired:
+           → HOLD payment confirmation
+           → Send notification to user: "Identity verification required"
+    ↓
+    2. Identity Verification Flow:
+       a. User receives email/SMS with verification link
+       b. User clicks link → redirected to verification page
+       c. Request Proof of Ownership signature:
+          - Generate challenge: "I own wallet {address} on {blockchain}. Nonce: {random}"
+          - User signs message with Phantom wallet
+          - Verify signature cryptographically
+       d. If signature valid:
+          - Collect originator PII:
+              * Full name
+              * Physical address
+              * National ID/Passport number
+              * Date of birth
+          - Optionally: Face liveness check (Sumsub) for high-value
+       e. Store Proof of Ownership (aml_proof_of_ownership)
+       f. Store Travel Rule data (aml_travel_rule_data, ENCRYPTED)
+    ↓
+    3. Verification complete → Resume payment confirmation
+    ↓
+    Future payments from this wallet → Auto-recognized (cached for 1 year)
+
+ELSE (amount_usd < 1000):
+    ↓
+    Travel Rule NOT required
+    Optional: Still collect Proof of Ownership for future
+    Proceed with standard AML checks
+```
+
+### Proof of Ownership Verification Flow
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ PROOF OF OWNERSHIP - SIGNATURE VERIFICATION                   │
+└──────────────────────────────────────────────────────────────┘
+
+1. USER INITIATES VERIFICATION
+   ↓
+   User clicks "Verify Wallet Ownership" link (from email/notification)
+   ↓
+2. GENERATE CHALLENGE MESSAGE
+   ↓
+   Backend generates unique message:
+   "I own wallet {wallet_address} on {blockchain}. Timestamp: {unix_timestamp}. Nonce: {random}"
+
+   Example (Solana):
+   "I own wallet 7XaHW...xyz on solana. Timestamp: 1700000000. Nonce: a3b9c8d1"
+   ↓
+3. USER SIGNS MESSAGE
+   ↓
+   Frontend (Next.js) requests signature from wallet:
+   - Phantom: window.solana.signMessage(message)
+   - MetaMask: ethereum.request({ method: 'personal_sign', params: [message, address] })
+   ↓
+   User approves signature in wallet popup
+   ↓
+   Wallet returns signature (base58/hex encoded)
+   ↓
+4. BACKEND VERIFIES SIGNATURE
+   ↓
+   For Solana (Ed25519):
+   ```go
+   import "github.com/gagliardetto/solana-go"
+
+   func VerifySignature(walletAddress, message, signatureBase58 string) (bool, error) {
+       pubKey := solana.MustPublicKeyFromBase58(walletAddress)
+       sig := solana.SignatureFromBase58(signatureBase58)
+
+       messageBytes := []byte(message)
+
+       // Verify signature matches public key
+       if sig.Verify(pubKey, messageBytes) {
+           return true, nil
+       }
+       return false, nil
+   }
+   ```
+
+   For Ethereum/BSC (secp256k1):
+   ```go
+   import "github.com/ethereum/go-ethereum/crypto"
+
+   func VerifyETHSignature(walletAddress, message, signatureHex string) (bool, error) {
+       messageHash := crypto.Keccak256Hash([]byte(message))
+       signature := hexutil.MustDecode(signatureHex)
+
+       // Recover public key from signature
+       pubKey, err := crypto.SigToPub(messageHash.Bytes(), signature)
+       if err != nil {
+           return false, err
+       }
+
+       // Verify recovered address matches claimed address
+       recoveredAddr := crypto.PubkeyToAddress(*pubKey)
+       return recoveredAddr.Hex() == walletAddress, nil
+   }
+   ```
+   ↓
+5. STORE PROOF OF OWNERSHIP
+   ↓
+   If signature valid:
+   - Create record in aml_proof_of_ownership:
+       * wallet_address
+       * blockchain
+       * signed_message (original challenge)
+       * signature (hex/base58)
+       * signature_algorithm ('ed25519' or 'secp256k1')
+       * verification_status: 'verified'
+       * proof_expires_at: NOW() + 1 YEAR
+   - Link to user_id (from KYC or create new user record)
+   ↓
+6. COLLECT IDENTITY INFORMATION
+   ↓
+   After signature verified:
+   - Request user to provide:
+       * Full legal name
+       * Physical address
+       * National ID / Passport number
+       * Date of birth
+   - For transactions ≥ $5,000: Face liveness check (Sumsub)
+   ↓
+7. ENCRYPT AND STORE TRAVEL RULE DATA
+   ↓
+   Create aml_travel_rule_data record (ENCRYPT all PII)
+   - originator_full_name (ENCRYPTED)
+   - originator_address_line (ENCRYPTED)
+   - originator_id_number (ENCRYPTED)
+   - originator_date_of_birth (ENCRYPTED)
+   - data_source: 'proof_of_ownership'
+   - verification_method: 'signature_verification'
+   ↓
+8. VERIFICATION COMPLETE
+   ↓
+   User notified: "Wallet verified! Future payments will be auto-approved."
+   Payment confirmation proceeds
+
+FUTURE PAYMENTS FROM SAME WALLET:
+   ↓
+   1. Check aml_proof_of_ownership
+   2. If exists and NOT expired (< 1 year old):
+      - Auto-approve without re-verification
+      - Update last_used_at timestamp
+   3. If expired (> 1 year):
+      - Request signature renewal (same flow)
 ```
 
 ### API Integration Points
@@ -1395,18 +1738,500 @@ ORDER BY
    - SAR: Within 12 hours of detection (Vietnam requirement)
    - Keep copies of all reports for 7 years
 
-### Data Privacy
+### Data Privacy & PII Encryption
 
-1. **GDPR/Vietnam Personal Data Protection**:
-   - Customer data must be encrypted at rest
-   - Access controls for AML data (role-based)
-   - Audit log all access to sensitive data
-   - Data retention: 7 years (regulatory requirement)
+⚠️ **CRITICAL REQUIREMENT**: All PII fields MUST be encrypted at application level before INSERT into database.
 
-2. **PII Handling**:
-   - Redact PII from logs
-   - Anonymize data for analytics/ML training
-   - Secure disposal after retention period
+#### 1. Application-Level Encryption (AES-256-GCM)
+
+**Mandatory Encrypted Fields**:
+
+**Travel Rule Data (`aml_travel_rule_data`)**:
+- `originator_full_name`
+- `originator_account_number`
+- `originator_address_line`
+- `originator_id_number`
+- `originator_date_of_birth`
+- `beneficiary_full_name`
+- `beneficiary_account_number`
+- `beneficiary_address_line`
+
+**Customer Risk Scores** (if storing PII in `risk_factors` JSONB):
+- Any personally identifiable information in metadata
+
+**Merchants Table** (extend existing schema):
+- `owner_full_name`
+- `owner_id_number`
+- `business_address`
+- `phone_number`
+- `tax_id`
+
+**Implementation Guide (Golang)**:
+
+```go
+// pkg/crypto/encryption.go
+package crypto
+
+import (
+    "crypto/aes"
+    "crypto/cipher"
+    "crypto/rand"
+    "encoding/base64"
+    "errors"
+    "io"
+)
+
+type PIIEncryptor struct {
+    key []byte // 32 bytes for AES-256
+    keyVersion int
+}
+
+// NewPIIEncryptor creates encryptor from environment variable
+func NewPIIEncryptor() (*PIIEncryptor, error) {
+    keyBase64 := os.Getenv("PII_ENCRYPTION_KEY")
+    if keyBase64 == "" {
+        return nil, errors.New("PII_ENCRYPTION_KEY not set")
+    }
+
+    key, err := base64.StdEncoding.DecodeString(keyBase64)
+    if err != nil {
+        return nil, fmt.Errorf("invalid encryption key: %w", err)
+    }
+
+    if len(key) != 32 {
+        return nil, errors.New("encryption key must be 32 bytes (AES-256)")
+    }
+
+    return &PIIEncryptor{
+        key: key,
+        keyVersion: 1, // Track for key rotation
+    }, nil
+}
+
+// Encrypt encrypts plaintext using AES-256-GCM
+func (e *PIIEncryptor) Encrypt(plaintext string) (string, error) {
+    if plaintext == "" {
+        return "", nil // Don't encrypt empty strings
+    }
+
+    block, err := aes.NewCipher(e.key)
+    if err != nil {
+        return "", fmt.Errorf("failed to create cipher: %w", err)
+    }
+
+    gcm, err := cipher.NewGCM(block)
+    if err != nil {
+        return "", fmt.Errorf("failed to create GCM: %w", err)
+    }
+
+    // Generate random nonce
+    nonce := make([]byte, gcm.NonceSize())
+    if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+        return "", fmt.Errorf("failed to generate nonce: %w", err)
+    }
+
+    // Encrypt and authenticate
+    ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+
+    // Return base64 encoded (nonce + ciphertext)
+    return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// Decrypt decrypts ciphertext using AES-256-GCM
+func (e *PIIEncryptor) Decrypt(ciphertext string) (string, error) {
+    if ciphertext == "" {
+        return "", nil
+    }
+
+    data, err := base64.StdEncoding.DecodeString(ciphertext)
+    if err != nil {
+        return "", fmt.Errorf("failed to decode ciphertext: %w", err)
+    }
+
+    block, err := aes.NewCipher(e.key)
+    if err != nil {
+        return "", fmt.Errorf("failed to create cipher: %w", err)
+    }
+
+    gcm, err := cipher.NewGCM(block)
+    if err != nil {
+        return "", fmt.Errorf("failed to create GCM: %w", err)
+    }
+
+    nonceSize := gcm.NonceSize()
+    if len(data) < nonceSize {
+        return "", errors.New("ciphertext too short")
+    }
+
+    nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+    plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+    if err != nil {
+        return "", fmt.Errorf("failed to decrypt: %w", err)
+    }
+
+    return string(plaintext), nil
+}
+
+// EncryptDate encrypts date field (store as encrypted string)
+func (e *PIIEncryptor) EncryptDate(date time.Time) (string, error) {
+    if date.IsZero() {
+        return "", nil
+    }
+    return e.Encrypt(date.Format("2006-01-02"))
+}
+
+// DecryptDate decrypts date field
+func (e *PIIEncryptor) DecryptDate(encrypted string) (time.Time, error) {
+    if encrypted == "" {
+        return time.Time{}, nil
+    }
+
+    dateStr, err := e.Decrypt(encrypted)
+    if err != nil {
+        return time.Time{}, err
+    }
+
+    return time.Parse("2006-01-02", dateStr)
+}
+```
+
+**Usage in Repository Layer**:
+
+```go
+// internal/repository/travel_rule_repository.go
+package repository
+
+import (
+    "context"
+    "github.com/yourproject/internal/model"
+    "github.com/yourproject/pkg/crypto"
+)
+
+type TravelRuleRepository struct {
+    db        *sql.DB
+    encryptor *crypto.PIIEncryptor
+}
+
+func NewTravelRuleRepository(db *sql.DB, encryptor *crypto.PIIEncryptor) *TravelRuleRepository {
+    return &TravelRuleRepository{
+        db:        db,
+        encryptor: encryptor,
+    }
+}
+
+func (r *TravelRuleRepository) Create(ctx context.Context, data *model.TravelRuleData) error {
+    // ENCRYPT PII BEFORE INSERT
+    encryptedOriginatorName, err := r.encryptor.Encrypt(data.OriginatorFullName)
+    if err != nil {
+        return fmt.Errorf("failed to encrypt originator name: %w", err)
+    }
+
+    encryptedOriginatorAddress, err := r.encryptor.Encrypt(data.OriginatorAddressLine)
+    if err != nil {
+        return fmt.Errorf("failed to encrypt originator address: %w", err)
+    }
+
+    encryptedOriginatorID, err := r.encryptor.Encrypt(data.OriginatorIDNumber)
+    if err != nil {
+        return fmt.Errorf("failed to encrypt originator ID: %w", err)
+    }
+
+    encryptedDOB, err := r.encryptor.EncryptDate(data.OriginatorDateOfBirth)
+    if err != nil {
+        return fmt.Errorf("failed to encrypt DOB: %w", err)
+    }
+
+    encryptedBeneficiaryName, err := r.encryptor.Encrypt(data.BeneficiaryFullName)
+    if err != nil {
+        return fmt.Errorf("failed to encrypt beneficiary name: %w", err)
+    }
+
+    // Compute SHA-256 hash for integrity
+    dataHash := computeDataHash(data)
+
+    query := `
+        INSERT INTO aml_travel_rule_data (
+            payment_id, transaction_amount_usd, transaction_threshold_met,
+            originator_full_name, originator_wallet_address,
+            originator_address_line, originator_id_number, originator_date_of_birth,
+            beneficiary_full_name, beneficiary_wallet_address,
+            blockchain, crypto_currency, crypto_amount, tx_hash,
+            data_source, verification_method, data_hash, encryption_key_version
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+        )
+    `
+
+    _, err = r.db.ExecContext(ctx, query,
+        data.PaymentID,
+        data.TransactionAmountUSD,
+        data.TransactionAmountUSD.Cmp(decimal.NewFromInt(1000)) >= 0,
+        encryptedOriginatorName,           // ENCRYPTED
+        data.OriginatorWalletAddress,      // NOT encrypted (needed for queries)
+        encryptedOriginatorAddress,        // ENCRYPTED
+        encryptedOriginatorID,             // ENCRYPTED
+        encryptedDOB,                      // ENCRYPTED
+        encryptedBeneficiaryName,          // ENCRYPTED
+        data.BeneficiaryWalletAddress,
+        data.Blockchain,
+        data.CryptoCurrency,
+        data.CryptoAmount,
+        data.TxHash,
+        data.DataSource,
+        data.VerificationMethod,
+        dataHash,
+        1, // encryption_key_version
+    )
+
+    if err != nil {
+        return fmt.Errorf("failed to insert travel rule data: %w", err)
+    }
+
+    return nil
+}
+
+func (r *TravelRuleRepository) GetByPaymentID(ctx context.Context, paymentID string) (*model.TravelRuleData, error) {
+    var data model.TravelRuleData
+    var encryptedFields struct {
+        OriginatorFullName    string
+        OriginatorAddressLine sql.NullString
+        OriginatorIDNumber    sql.NullString
+        OriginatorDOB         sql.NullString
+        BeneficiaryFullName   string
+    }
+
+    query := `
+        SELECT
+            id, payment_id, transaction_amount_usd,
+            originator_full_name, originator_wallet_address,
+            originator_address_line, originator_id_number, originator_date_of_birth,
+            beneficiary_full_name, beneficiary_wallet_address,
+            blockchain, crypto_currency, crypto_amount, tx_hash,
+            data_source, verification_status, verification_method
+        FROM aml_travel_rule_data
+        WHERE payment_id = $1
+    `
+
+    err := r.db.QueryRowContext(ctx, query, paymentID).Scan(
+        &data.ID, &data.PaymentID, &data.TransactionAmountUSD,
+        &encryptedFields.OriginatorFullName,
+        &data.OriginatorWalletAddress,
+        &encryptedFields.OriginatorAddressLine,
+        &encryptedFields.OriginatorIDNumber,
+        &encryptedFields.OriginatorDOB,
+        &encryptedFields.BeneficiaryFullName,
+        &data.BeneficiaryWalletAddress,
+        &data.Blockchain,
+        &data.CryptoCurrency,
+        &data.CryptoAmount,
+        &data.TxHash,
+        &data.DataSource,
+        &data.VerificationStatus,
+        &data.VerificationMethod,
+    )
+
+    if err != nil {
+        return nil, err
+    }
+
+    // DECRYPT PII AFTER SELECT
+    data.OriginatorFullName, err = r.encryptor.Decrypt(encryptedFields.OriginatorFullName)
+    if err != nil {
+        return nil, fmt.Errorf("failed to decrypt originator name: %w", err)
+    }
+
+    if encryptedFields.OriginatorAddressLine.Valid {
+        data.OriginatorAddressLine, err = r.encryptor.Decrypt(encryptedFields.OriginatorAddressLine.String)
+        if err != nil {
+            return nil, fmt.Errorf("failed to decrypt address: %w", err)
+        }
+    }
+
+    if encryptedFields.OriginatorIDNumber.Valid {
+        data.OriginatorIDNumber, err = r.encryptor.Decrypt(encryptedFields.OriginatorIDNumber.String)
+        if err != nil {
+            return nil, fmt.Errorf("failed to decrypt ID number: %w", err)
+        }
+    }
+
+    if encryptedFields.OriginatorDOB.Valid {
+        data.OriginatorDateOfBirth, err = r.encryptor.DecryptDate(encryptedFields.OriginatorDOB.String)
+        if err != nil {
+            return nil, fmt.Errorf("failed to decrypt DOB: %w", err)
+        }
+    }
+
+    data.BeneficiaryFullName, err = r.encryptor.Decrypt(encryptedFields.BeneficiaryFullName)
+    if err != nil {
+        return nil, fmt.Errorf("failed to decrypt beneficiary name: %w", err)
+    }
+
+    return &data, nil
+}
+```
+
+#### 2. Environment Configuration
+
+```bash
+# .env (NEVER commit to git!)
+
+# PII Encryption Key (AES-256 requires 32 bytes = 44 chars base64)
+# Generate: openssl rand -base64 32
+PII_ENCRYPTION_KEY=your_base64_encoded_32_byte_key_here
+
+# Key Rotation (for future)
+PII_ENCRYPTION_KEY_V2=new_key_for_rotation
+PII_ACTIVE_KEY_VERSION=1
+```
+
+**Key Generation Script**:
+```bash
+#!/bin/bash
+# scripts/generate_encryption_key.sh
+echo "Generating new AES-256 encryption key..."
+openssl rand -base64 32 > encryption_key.txt
+echo "Key saved to encryption_key.txt"
+echo "Add to .env as: PII_ENCRYPTION_KEY=$(cat encryption_key.txt)"
+echo ""
+echo "⚠️  CRITICAL: Store this key in a secure vault (AWS KMS, HashiCorp Vault)"
+echo "⚠️  NEVER commit this key to git"
+echo "⚠️  Losing this key means PERMANENT data loss"
+```
+
+#### 3. Key Management Best Practices
+
+**Production Key Storage**:
+- **DO NOT** store keys in environment variables in production
+- **USE** AWS KMS, HashiCorp Vault, or Google Cloud KMS
+- **IMPLEMENT** key rotation policy (every 12 months)
+- **BACKUP** encryption keys in secure offline storage
+
+**Key Rotation Strategy**:
+```go
+// Support for multiple encryption key versions
+func (r *TravelRuleRepository) Migrate ToNewKey(ctx context.Context) error {
+    // 1. Fetch all records encrypted with old key (version 1)
+    rows, err := r.db.QueryContext(ctx, `
+        SELECT id, originator_full_name, originator_address_line, ...
+        FROM aml_travel_rule_data
+        WHERE encryption_key_version = 1
+    `)
+    if err != nil {
+        return err
+    }
+    defer rows.Close()
+
+    for rows.Next() {
+        // 2. Decrypt with old key
+        plaintext, err := oldEncryptor.Decrypt(encryptedData)
+
+        // 3. Re-encrypt with new key
+        newCiphertext, err := newEncryptor.Encrypt(plaintext)
+
+        // 4. Update record with new ciphertext and version 2
+        _, err = r.db.ExecContext(ctx, `
+            UPDATE aml_travel_rule_data
+            SET originator_full_name = $1, encryption_key_version = 2
+            WHERE id = $2
+        `, newCiphertext, id)
+    }
+
+    return nil
+}
+```
+
+#### 4. GDPR/Vietnam Personal Data Protection Compliance
+
+1. **Data Subject Rights**:
+   - **Right to Access**: Decrypt and provide PII to user on request
+   - **Right to Rectification**: Update encrypted PII with new values
+   - **Right to Erasure**: Replace PII with "[REDACTED]" after retention period
+   - **Right to Portability**: Export decrypted PII in structured format
+
+2. **Access Controls**:
+   - Only compliance officers can decrypt PII
+   - Implement role-based access control (RBAC)
+   - Audit log all PII decryption operations
+
+```go
+// Audit PII access
+func (r *TravelRuleRepository) GetByPaymentID(ctx context.Context, paymentID string, actorID string) (*model.TravelRuleData, error) {
+    data, err := r.getAndDecrypt(ctx, paymentID)
+    if err != nil {
+        return nil, err
+    }
+
+    // LOG PII ACCESS
+    r.auditLog.Log(AuditEntry{
+        ActorID: actorID,
+        Action: "PII_ACCESS",
+        ResourceType: "travel_rule_data",
+        ResourceID: data.ID,
+        Metadata: map[string]interface{}{
+            "payment_id": paymentID,
+            "fields_accessed": []string{"originator_full_name", "originator_address"},
+        },
+        IPAddress: getIPFromContext(ctx),
+        Timestamp: time.Now(),
+    })
+
+    return data, nil
+}
+```
+
+3. **Data Retention**:
+   - Keep encrypted PII for 7 years (Vietnam AML requirement)
+   - After 7 years: Securely delete or pseudonymize
+   - Implement automated retention policy
+
+```sql
+-- Automated cleanup job (run annually)
+UPDATE aml_travel_rule_data
+SET
+    originator_full_name = '[REDACTED]',
+    originator_address_line = '[REDACTED]',
+    originator_id_number = '[REDACTED]',
+    originator_date_of_birth = NULL,
+    beneficiary_full_name = '[REDACTED]',
+    beneficiary_address_line = '[REDACTED]'
+WHERE created_at < NOW() - INTERVAL '7 years';
+```
+
+4. **Logging & Redaction**:
+   - **NEVER** log PII in application logs
+   - Redact sensitive fields before logging
+
+```go
+// Safe logging with PII redaction
+log.Infof("Processing travel rule for payment %s, originator wallet: %s (name: [REDACTED])",
+    paymentID,
+    maskWalletAddress(originatorWallet), // Show only last 4 chars
+)
+
+func maskWalletAddress(addr string) string {
+    if len(addr) <= 8 {
+        return "****"
+    }
+    return addr[:4] + "****" + addr[len(addr)-4:]
+}
+```
+
+#### 5. Disaster Recovery
+
+**What if encryption key is lost?**
+- ❌ **PII is PERMANENTLY UNRECOVERABLE**
+- Critical: Implement key backup strategy
+- Store key backups in:
+  - AWS KMS (encrypted at rest)
+  - Hardware Security Module (HSM)
+  - Offline secure storage (printed, in safe)
+
+**Backup Procedure**:
+```bash
+# Encrypt encryption key with GPG before storing
+gpg --encrypt --recipient compliance@yourcompany.com encryption_key.txt
+# Store encryption_key.txt.gpg in offline vault
+```
 
 ### Security
 
