@@ -16,6 +16,7 @@ const (
 	TypePaymentExpiry         = "payment:expiry"
 	TypeBalanceCheck          = "wallet:balance_check"
 	TypeDailySettlementReport = "report:daily_settlement"
+	TypeDailyReconciliation   = "audit:daily_reconciliation"
 )
 
 // Job priority levels
