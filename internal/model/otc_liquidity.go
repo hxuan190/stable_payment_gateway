@@ -2,6 +2,7 @@ package model
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -154,5 +155,3 @@ type OTCLiquidityHistory struct {
 	ReferenceID        sql.NullString  `json:"reference_id,omitempty" db:"reference_id"`
 	RecordedAt         time.Time       `json:"recorded_at" db:"recorded_at"`
 }
-
-import "fmt"

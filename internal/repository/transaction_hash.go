@@ -67,7 +67,7 @@ func (r *TransactionHashRepository) Create(hash *model.TransactionHash) error {
 	err := r.db.QueryRow(
 		query,
 		hash.ID,
-		hash.TableName,
+		hash.SourceTableName,
 		hash.RecordID,
 		hash.DataHash,
 		hash.PreviousHash,
@@ -115,7 +115,7 @@ func (r *TransactionHashRepository) GetByID(id uuid.UUID) (*model.TransactionHas
 	hash := &model.TransactionHash{}
 	err := r.db.QueryRow(query, id).Scan(
 		&hash.ID,
-		&hash.TableName,
+		&hash.SourceTableName,
 		&hash.RecordID,
 		&hash.DataHash,
 		&hash.PreviousHash,
@@ -165,7 +165,7 @@ func (r *TransactionHashRepository) GetByRecord(tableName string, recordID uuid.
 	hash := &model.TransactionHash{}
 	err := r.db.QueryRow(query, tableName, recordID).Scan(
 		&hash.ID,
-		&hash.TableName,
+		&hash.SourceTableName,
 		&hash.RecordID,
 		&hash.DataHash,
 		&hash.PreviousHash,
@@ -229,7 +229,7 @@ func (r *TransactionHashRepository) ListByTableName(tableName string, limit, off
 		hash := &model.TransactionHash{}
 		err := rows.Scan(
 			&hash.ID,
-			&hash.TableName,
+			&hash.SourceTableName,
 			&hash.RecordID,
 			&hash.DataHash,
 			&hash.PreviousHash,
@@ -287,7 +287,7 @@ func (r *TransactionHashRepository) ListByBlockDate(tableName string, blockDate 
 		hash := &model.TransactionHash{}
 		err := rows.Scan(
 			&hash.ID,
-			&hash.TableName,
+			&hash.SourceTableName,
 			&hash.RecordID,
 			&hash.DataHash,
 			&hash.PreviousHash,
@@ -459,7 +459,7 @@ func (r *TransactionHashRepository) ListUnverified(tableName string, limit int) 
 		hash := &model.TransactionHash{}
 		err := rows.Scan(
 			&hash.ID,
-			&hash.TableName,
+			&hash.SourceTableName,
 			&hash.RecordID,
 			&hash.DataHash,
 			&hash.PreviousHash,
@@ -510,7 +510,7 @@ func (r *TransactionHashRepository) GetLatestByTable(tableName string) (*model.T
 	hash := &model.TransactionHash{}
 	err := r.db.QueryRow(query, tableName).Scan(
 		&hash.ID,
-		&hash.TableName,
+		&hash.SourceTableName,
 		&hash.RecordID,
 		&hash.DataHash,
 		&hash.PreviousHash,

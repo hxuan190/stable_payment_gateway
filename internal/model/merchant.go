@@ -12,10 +12,12 @@ import (
 type KYCStatus string
 
 const (
-	KYCStatusPending   KYCStatus = "pending"
-	KYCStatusApproved  KYCStatus = "approved"
-	KYCStatusRejected  KYCStatus = "rejected"
-	KYCStatusSuspended KYCStatus = "suspended"
+	KYCStatusPending    KYCStatus = "pending"
+	KYCStatusInProgress KYCStatus = "in_progress"
+	KYCStatusApproved   KYCStatus = "approved"
+	KYCStatusRejected   KYCStatus = "rejected"
+	KYCStatusSuspended  KYCStatus = "suspended"
+	KYCStatusExpired    KYCStatus = "expired"
 )
 
 // KYCTier represents the KYC tier level for compliance limits
