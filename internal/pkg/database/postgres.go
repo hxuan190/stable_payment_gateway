@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/crypto"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
 
@@ -15,10 +17,35 @@ import (
 type PostgresDB struct {
 	*sql.DB
 	config *config.DatabaseConfig
+	cipher *crypto.AES256GCM // Encryption cipher for PII data
 }
 
 // New creates a new PostgreSQL database connection pool
 func New(cfg *config.DatabaseConfig) (*PostgresDB, error) {
+	// CRITICAL SECURITY: Initialize encryption cipher from environment variable
+	// This MUST be configured before any PII data is stored
+	encryptionKey := os.Getenv("ENCRYPTION_MASTER_KEY")
+	if encryptionKey == "" {
+		panic("FATAL: ENCRYPTION_MASTER_KEY environment variable is not set. PII encryption is mandatory. Application cannot start.")
+	}
+
+	// Validate key length (must be exactly 32 bytes for AES-256)
+	keyBytes := []byte(encryptionKey)
+	if len(keyBytes) != 32 {
+		panic(fmt.Sprintf("FATAL: ENCRYPTION_MASTER_KEY must be exactly 32 bytes for AES-256, got %d bytes. Application cannot start.", len(keyBytes)))
+	}
+
+	// Initialize AES-256-GCM cipher
+	cipher, err := crypto.NewAES256GCM(keyBytes)
+	if err != nil {
+		panic(fmt.Sprintf("FATAL: Failed to initialize encryption cipher: %v. Application cannot start.", err))
+	}
+
+	logger.Info("Encryption cipher initialized successfully for PII protection", logger.Fields{
+		"algorithm": "AES-256-GCM",
+		"key_size":  len(keyBytes),
+	})
+
 	// Build connection string
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
@@ -61,6 +88,7 @@ func New(cfg *config.DatabaseConfig) (*PostgresDB, error) {
 	return &PostgresDB{
 		DB:     db,
 		config: cfg,
+		cipher: cipher,
 	}, nil
 }
 
@@ -232,4 +260,10 @@ func (db *PostgresDB) LogPoolStats() {
 		"max_idle_closed":  stats.MaxIdleClosed,
 		"max_lifetime_closed": stats.MaxLifetimeClosed,
 	})
+}
+
+// GetCipher returns the encryption cipher for PII data
+// Repositories should use this to encrypt/decrypt sensitive fields
+func (db *PostgresDB) GetCipher() *crypto.AES256GCM {
+	return db.cipher
 }
