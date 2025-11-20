@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // EncryptedString is a custom type for encrypted string fields
@@ -133,7 +134,7 @@ func (p *EncryptionPlugin) afterFind(db *gorm.DB) {
 }
 
 // encryptField encrypts a single field
-func (p *EncryptionPlugin) encryptField(db *gorm.DB, field *gorm.Field) {
+func (p *EncryptionPlugin) encryptField(db *gorm.DB, field *schema.Field) {
 	// Get the field value
 	fieldValue, isZero := field.ValueOf(db.Statement.Context, db.Statement.ReflectValue)
 	if isZero {
@@ -189,7 +190,7 @@ func (p *EncryptionPlugin) encryptField(db *gorm.DB, field *gorm.Field) {
 }
 
 // decryptField decrypts a single field
-func (p *EncryptionPlugin) decryptField(db *gorm.DB, field *gorm.Field) {
+func (p *EncryptionPlugin) decryptField(db *gorm.DB, field *schema.Field) {
 	// Get the field value
 	fieldValue, isZero := field.ValueOf(db.Statement.Context, db.Statement.ReflectValue)
 	if isZero {

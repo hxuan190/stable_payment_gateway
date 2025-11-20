@@ -4,10 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/crypto"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -16,6 +20,7 @@ import (
 // PostgresDB wraps the database connection pool
 type PostgresDB struct {
 	*sql.DB
+	gormDB *gorm.DB // GORM instance for models with encryption
 	config *config.DatabaseConfig
 	cipher *crypto.AES256GCM // Encryption cipher for PII data
 }
@@ -26,19 +31,19 @@ func New(cfg *config.DatabaseConfig) (*PostgresDB, error) {
 	// This MUST be configured before any PII data is stored
 	encryptionKey := os.Getenv("ENCRYPTION_MASTER_KEY")
 	if encryptionKey == "" {
-		panic("FATAL: ENCRYPTION_MASTER_KEY environment variable is not set. PII encryption is mandatory. Application cannot start.")
+		log.Fatal("FATAL: ENCRYPTION_MASTER_KEY environment variable is not set. PII encryption is mandatory. Application cannot start.")
 	}
 
 	// Validate key length (must be exactly 32 bytes for AES-256)
 	keyBytes := []byte(encryptionKey)
 	if len(keyBytes) != 32 {
-		panic(fmt.Sprintf("FATAL: ENCRYPTION_MASTER_KEY must be exactly 32 bytes for AES-256, got %d bytes. Application cannot start.", len(keyBytes)))
+		log.Fatalf("FATAL: ENCRYPTION_MASTER_KEY must be exactly 32 bytes for AES-256, got %d bytes. Application cannot start.", len(keyBytes))
 	}
 
 	// Initialize AES-256-GCM cipher
 	cipher, err := crypto.NewAES256GCM(keyBytes)
 	if err != nil {
-		panic(fmt.Sprintf("FATAL: Failed to initialize encryption cipher: %v. Application cannot start.", err))
+		log.Fatalf("FATAL: Failed to initialize encryption cipher: %v. Application cannot start.", err)
 	}
 
 	logger.Info("Encryption cipher initialized successfully for PII protection", logger.Fields{
@@ -77,6 +82,24 @@ func New(cfg *config.DatabaseConfig) (*PostgresDB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Initialize GORM instance for models with encryption support
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
+	}), &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize GORM: %w", err)
+	}
+
+	// Initialize and register encryption plugin
+	encryptionPlugin := crypto.NewEncryptionPlugin(cipher)
+	if err := gormDB.Use(encryptionPlugin); err != nil {
+		log.Fatalf("FATAL: Failed to register encryption plugin: %v. Application cannot start.", err)
+	}
+
+	logger.Info("Encryption plugin registered successfully for GORM models", logger.Fields{
+		"plugin_name": encryptionPlugin.Name(),
+	})
+
 	logger.Info("Database connection pool established", logger.Fields{
 		"host":           cfg.Host,
 		"port":           cfg.Port,
@@ -87,6 +110,7 @@ func New(cfg *config.DatabaseConfig) (*PostgresDB, error) {
 
 	return &PostgresDB{
 		DB:     db,
+		gormDB: gormDB,
 		config: cfg,
 		cipher: cipher,
 	}, nil
@@ -252,12 +276,12 @@ func (db *PostgresDB) WaitForConnection(ctx context.Context, maxRetries int) err
 func (db *PostgresDB) LogPoolStats() {
 	stats := db.GetStats()
 	logger.Info("Database connection pool stats", logger.Fields{
-		"open_connections": stats.OpenConnections,
-		"in_use":           stats.InUse,
-		"idle":             stats.Idle,
-		"wait_count":       stats.WaitCount,
-		"wait_duration":    stats.WaitDuration.String(),
-		"max_idle_closed":  stats.MaxIdleClosed,
+		"open_connections":    stats.OpenConnections,
+		"in_use":              stats.InUse,
+		"idle":                stats.Idle,
+		"wait_count":          stats.WaitCount,
+		"wait_duration":       stats.WaitDuration.String(),
+		"max_idle_closed":     stats.MaxIdleClosed,
 		"max_lifetime_closed": stats.MaxLifetimeClosed,
 	})
 }
@@ -266,4 +290,10 @@ func (db *PostgresDB) LogPoolStats() {
 // Repositories should use this to encrypt/decrypt sensitive fields
 func (db *PostgresDB) GetCipher() *crypto.AES256GCM {
 	return db.cipher
+}
+
+// GetGORM returns the GORM database instance with encryption plugin registered
+// Use this for models tagged with encrypt:"true"
+func (db *PostgresDB) GetGORM() *gorm.DB {
+	return db.gormDB
 }

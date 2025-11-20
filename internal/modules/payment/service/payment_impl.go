@@ -16,27 +16,19 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/pkg/web3"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/repository"
 )
 
 var (
-	// ErrInvalidAmount is returned when payment amount is invalid
-	ErrInvalidAmount = errors.New("invalid payment amount")
-	// ErrPaymentExpired is returned when payment has expired
-	ErrPaymentExpired = errors.New("payment has expired")
-	// ErrPaymentAlreadyCompleted is returned when payment is already completed
+	ErrInvalidAmount           = errors.New("invalid payment amount")
+	ErrPaymentExpired          = errors.New("payment has expired")
 	ErrPaymentAlreadyCompleted = errors.New("payment is already completed")
-	// ErrPaymentNotFound is returned when payment is not found
-	ErrPaymentNotFound = repository.ErrPaymentNotFound
-	// ErrInvalidPaymentState is returned when payment is in invalid state for operation
-	ErrInvalidPaymentState = errors.New("payment is in invalid state for this operation")
-	// ErrAmountMismatch is returned when actual amount doesn't match expected amount
-	ErrAmountMismatch = errors.New("payment amount mismatch")
-	// ErrInvalidChain is returned when chain is not supported
-	ErrInvalidChain = errors.New("invalid or unsupported blockchain chain")
-	// ErrInvalidSignature is returned when wallet signature verification fails
-	ErrInvalidSignature = errors.New("invalid wallet signature: proof of ownership failed")
+	ErrPaymentNotFound         = repository.ErrPaymentNotFound
+	ErrInvalidPaymentState     = errors.New("payment is in invalid state for this operation")
+	ErrAmountMismatch          = errors.New("payment amount mismatch")
+	ErrInvalidChain            = errors.New("invalid or unsupported blockchain chain")
+	ErrMerchantNotFound        = errors.New("merchant not found")
+	ErrMerchantNotApproved     = errors.New("merchant is not approved to accept payments")
 )
 
 const (
@@ -72,13 +64,17 @@ type ExchangeRateProvider interface {
 	GetUSDCToVND(ctx context.Context) (decimal.Decimal, error)
 }
 
+// ComplianceService defines the interface for compliance operations
+type ComplianceService interface {
+	CheckMonthlyLimit(ctx context.Context, merchantID string, amountUSD decimal.Decimal) error
+}
+
 // PaymentService handles payment business logic
 type PaymentService struct {
 	paymentRepo         PaymentRepository
 	merchantRepo        MerchantRepository
 	exchangeRateService ExchangeRateProvider
 	complianceService   ComplianceService // For pre-payment validation
-	amlService          AMLService        // For wallet sanctions screening (shift-left security)
 	redisClient         *redis.Client     // For publishing real-time events
 	logger              *logrus.Logger
 	defaultChain        model.Chain
@@ -104,7 +100,6 @@ func NewPaymentService(
 	merchantRepo MerchantRepository,
 	exchangeRateService ExchangeRateProvider,
 	complianceService ComplianceService, // Optional: for compliance checks
-	amlService AMLService, // Optional: for AML pre-screening
 	config PaymentServiceConfig,
 	logger *logrus.Logger,
 ) *PaymentService {
@@ -133,7 +128,6 @@ func NewPaymentService(
 		merchantRepo:        merchantRepo,
 		exchangeRateService: exchangeRateService,
 		complianceService:   complianceService,
-		amlService:          amlService,
 		redisClient:         config.RedisClient,
 		logger:              logger,
 		defaultChain:        defaultChain,
@@ -153,18 +147,9 @@ type CreatePaymentRequest struct {
 	OrderID     string
 	Description string
 	CallbackURL string
-	// Proof of Ownership (optional, required for unhosted wallets > $1000)
-	FromAddress   string // Solana wallet address (Base58)
-	Signature     string // Base64-encoded signature proving wallet ownership
-	SignedMessage string // The message that was signed (for verification)
 }
 
 // CreatePayment creates a new payment request
-// SECURITY: This function implements shift-left security with the following order:
-// 1. Input Validation
-// 2. Signature Verification (if unhosted wallet)
-// 3. AML Pre-Screening (BEFORE DB persistence)
-// 4. DB Persistence
 func (s *PaymentService) CreatePayment(ctx context.Context, req CreatePaymentRequest) (*model.Payment, error) {
 	s.logger.WithFields(logrus.Fields{
 		"merchant_id": req.MerchantID,
@@ -173,26 +158,20 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req CreatePaymentReq
 		"chain":       req.Chain,
 	}).Info("Creating payment")
 
-	// ============================================
-	// STEP 1: INPUT VALIDATION
-	// ============================================
-	// Validate amount > 0
-	if req.AmountVND.LessThanOrEqual(decimal.Zero) {
-		return nil, ErrInvalidAmount
-	}
-
 	// Validate merchant exists and is approved
 	merchant, err := s.merchantRepo.GetByID(req.MerchantID)
 	if err != nil {
-		if errors.Is(err, repository.ErrMerchantNotFound) {
-			return nil, ErrMerchantNotFound
-		}
 		return nil, fmt.Errorf("failed to get merchant: %w", err)
 	}
 
 	if merchant.KYCStatus != model.KYCStatusApproved {
 		s.logger.WithField("merchant_id", req.MerchantID).Warn("Merchant not approved")
 		return nil, ErrMerchantNotApproved
+	}
+
+	// Validate amount
+	if req.AmountVND.LessThanOrEqual(decimal.Zero) {
+		return nil, ErrInvalidAmount
 	}
 
 	// Set defaults if not provided
@@ -220,107 +199,32 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req CreatePaymentReq
 	// Calculate crypto amount (VND / exchange rate)
 	amountCrypto := req.AmountVND.Div(exchangeRate).Round(6) // Round to 6 decimals for USDT/USDC
 
-	// Generate payment ID early (needed for signature verification and compliance checks)
-	paymentID := uuid.New().String()
-
-	// ============================================
-	// STEP 2: SIGNATURE VERIFICATION (if unhosted wallet)
-	// ============================================
-	// SECURITY: Verify wallet signature if FromAddress is provided (Proof of Ownership)
-	// This prevents wallet address spoofing for unhosted wallet transactions
-	// CRITICAL: Must happen BEFORE AML screening and DB persistence
-	if req.FromAddress != "" {
-		// Signature is REQUIRED if FromAddress is provided
-		if req.Signature == "" {
-			s.logger.WithFields(logrus.Fields{
-				"merchant_id":  req.MerchantID,
-				"from_address": req.FromAddress,
-			}).Warn("Signature required when FromAddress is provided")
-			return nil, fmt.Errorf("signature required for proof of wallet ownership when from_address is provided")
-		}
-
-		// Verify signature using Solana Ed25519 verification
-		var isValid bool
-		var verifyErr error
-
-		if req.SignedMessage != "" {
-			// Verify custom signed message
-			isValid, verifyErr = web3.VerifySolanaSignature(req.FromAddress, req.SignedMessage, req.Signature)
-		} else {
-			// Verify using standard payment challenge message
-			isValid, verifyErr = web3.VerifyPaymentSignature(req.FromAddress, paymentID, req.Signature)
-		}
-
-		if verifyErr != nil {
-			s.logger.WithFields(logrus.Fields{
-				"merchant_id":  req.MerchantID,
-				"from_address": req.FromAddress,
-				"error":        verifyErr.Error(),
-			}).Error("Signature verification failed")
-			return nil, fmt.Errorf("%w: %v", ErrInvalidSignature, verifyErr)
-		}
-
-		if !isValid {
-			s.logger.WithFields(logrus.Fields{
-				"merchant_id":  req.MerchantID,
-				"from_address": req.FromAddress,
-			}).Warn("Invalid signature: proof of ownership failed")
-			return nil, ErrInvalidSignature
-		}
-
-		s.logger.WithFields(logrus.Fields{
-			"merchant_id":  req.MerchantID,
-			"from_address": req.FromAddress,
-			"payment_id":   paymentID,
-		}).Info("Wallet signature verified successfully (Proof of Ownership)")
-	}
-
-	// ============================================
-	// STEP 3: AML PRE-SCREENING (Shift-Left Security)
-	// ============================================
-	// CRITICAL: This must happen BEFORE generating payment record or saving to DB
-	// Screen wallet for sanctions BEFORE creating payment record
-	// This prevents sanctioned wallets from ever creating a record in the payments table
+	// COMPLIANCE CHECK: Validate monthly limits BEFORE creating payment
 	if s.complianceService != nil {
-		// Create temporary payment object for compliance validation (not yet saved to DB)
+		// Calculate USD amount for compliance check
+		// Assuming 1 USD ≈ 23,000 VND (approximate, but compliance uses exact stablecoin value)
+		// For USDT/USDC, the crypto amount IS the USD amount
 		amountUSD := amountCrypto // USDT/USDC are 1:1 with USD
 
-		// Create payment object structure for compliance check (not persisted yet)
-		tempPayment := &model.Payment{
-			ID:           paymentID,
-			MerchantID:   req.MerchantID,
-			AmountVND:    req.AmountVND,
-			AmountCrypto: amountCrypto,
-			Currency:     currency,
-			Chain:        chain,
-			ExchangeRate: exchangeRate,
-		}
-
-		// Perform comprehensive compliance validation (includes AML screening)
-		// This will call AML service internally if fromAddress is provided
-		err := s.complianceService.ValidatePaymentCompliance(ctx, tempPayment, nil, req.FromAddress)
+		// Check if merchant would exceed monthly limit
+		err := s.complianceService.CheckMonthlyLimit(ctx, req.MerchantID, amountUSD)
 		if err != nil {
 			s.logger.WithFields(logrus.Fields{
-				"merchant_id":  req.MerchantID,
-				"from_address": req.FromAddress,
-				"amount_usd":   amountUSD.String(),
-				"error":        err.Error(),
-			}).Warn("AML pre-screening failed: sanctioned or high-risk wallet detected")
-
-			// Reject payment creation immediately - do NOT create database record
-			return nil, fmt.Errorf("AML pre-screening failed: %w", err)
+				"merchant_id": req.MerchantID,
+				"amount_usd":  amountUSD.String(),
+				"error":       err.Error(),
+			}).Warn("Payment rejected: monthly limit check failed")
+			return nil, fmt.Errorf("compliance check failed: %w", err)
 		}
 
 		s.logger.WithFields(logrus.Fields{
-			"merchant_id":  req.MerchantID,
-			"from_address": req.FromAddress,
-		}).Info("AML pre-screening passed: wallet is not sanctioned")
+			"merchant_id": req.MerchantID,
+			"amount_usd":  amountUSD.String(),
+		}).Info("Compliance check passed: monthly limit OK")
 	}
 
-	// ============================================
-	// STEP 4: DB PERSISTENCE
-	// ============================================
-	// Only if steps 1, 2, 3 pass -> Generate payment reference -> Save to DB
+	// Generate payment ID and reference
+	paymentID := uuid.New().String()
 	paymentReference, err := s.generatePaymentReference()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate payment reference: %w", err)
@@ -359,7 +263,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req CreatePaymentReq
 	// Calculate fee and net amount
 	payment.CalculateFee()
 
-	// Save to database (only after all security checks pass)
+	// Save to database
 	if err := s.paymentRepo.Create(payment); err != nil {
 		return nil, fmt.Errorf("failed to create payment: %w", err)
 	}
