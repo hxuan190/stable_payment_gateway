@@ -24,6 +24,14 @@ var (
 	ErrBlockedFlag = errors.New("wallet address has blocked flag")
 	// ErrAMLScreeningFailed is returned when AML screening fails
 	ErrAMLScreeningFailed = errors.New("AML screening failed")
+	// ErrVelocityLimitExceeded is returned when wallet exceeds transaction velocity limit
+	ErrVelocityLimitExceeded = errors.New("velocity limit exceeded: too many transactions from this address")
+)
+
+const (
+	// VelocityLimit24H is the maximum number of transactions allowed per wallet address in 24 hours
+	// This prevents spam, high-frequency trading attempts, and basic laundering patterns
+	VelocityLimit24H = 10
 )
 
 // AMLScreeningResult represents the result of an AML screening
@@ -162,19 +170,38 @@ func (s *amlServiceImpl) ValidateTransaction(ctx context.Context, paymentID uuid
 		"amount":       amount.String(),
 	})
 
-	// Step 1: Screen the wallet address
+	// Step 1: Velocity check (first line of defense against spam/high-frequency abuse)
+	// Check transaction count from this wallet in the last 24 hours
+	txCount, err := s.paymentRepo.CountByAddressAndWindow(fromAddress, 24*time.Hour)
+	if err != nil {
+		s.logger.Error("Failed to check velocity limit", err, map[string]interface{}{
+			"payment_id":   paymentID,
+			"from_address": fromAddress,
+		})
+		// Don't fail transaction if velocity check fails - log and continue
+	} else if txCount >= VelocityLimit24H {
+		s.logger.Warn("Transaction rejected: velocity limit exceeded", map[string]interface{}{
+			"payment_id":      paymentID,
+			"from_address":    fromAddress,
+			"tx_count_24h":    txCount,
+			"velocity_limit":  VelocityLimit24H,
+		})
+		return ErrVelocityLimitExceeded
+	}
+
+	// Step 2: Screen the wallet address
 	result, err := s.ScreenWalletAddress(ctx, fromAddress, chain)
 	if err != nil {
 		return fmt.Errorf("AML screening failed: %w", err)
 	}
 
-	// Step 2: Record the screening result
+	// Step 3: Record the screening result
 	if err := s.RecordScreeningResult(ctx, paymentID, result); err != nil {
 		s.logger.Error("Failed to record screening result", err, nil)
 		// Don't fail the transaction if we can't record, just log
 	}
 
-	// Step 3: Check if address is sanctioned
+	// Step 4: Check if address is sanctioned
 	if result.IsSanctioned && s.autoRejectSanctioned {
 		s.logger.Warn("Transaction rejected: sanctioned address", map[string]interface{}{
 			"payment_id":   paymentID,
@@ -184,7 +211,7 @@ func (s *amlServiceImpl) ValidateTransaction(ctx context.Context, paymentID uuid
 		return ErrSanctionedAddress
 	}
 
-	// Step 4: Check risk score threshold
+	// Step 5: Check risk score threshold
 	if result.RiskScore >= s.riskScoreThreshold {
 		s.logger.Warn("Transaction rejected: high risk score", map[string]interface{}{
 			"payment_id":   paymentID,
@@ -196,7 +223,7 @@ func (s *amlServiceImpl) ValidateTransaction(ctx context.Context, paymentID uuid
 		return ErrHighRiskAddress
 	}
 
-	// Step 5: Check for specific high-risk flags
+	// Step 6: Check for specific high-risk flags
 	for _, flag := range result.Flags {
 		if isBlockedFlag(flag) {
 			s.logger.Warn("Transaction rejected: blocked flag", map[string]interface{}{

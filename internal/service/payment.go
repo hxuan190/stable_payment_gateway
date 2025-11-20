@@ -58,6 +58,7 @@ type PaymentRepository interface {
 	Update(payment *model.Payment) error
 	ListByMerchant(merchantID string, limit, offset int) ([]*model.Payment, error)
 	GetExpiredPayments() ([]*model.Payment, error)
+	CountByAddressAndWindow(fromAddress string, window time.Duration) (int64, error)
 }
 
 // MerchantRepository defines the interface for merchant data access

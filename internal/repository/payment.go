@@ -825,6 +825,35 @@ func (r *PaymentRepository) GetTotalVolumeByMerchant(merchantID string) (decimal
 	return total, nil
 }
 
+// CountByAddressAndWindow returns the count of payments from a specific wallet address within a time window
+// This is used for velocity checks to prevent spam and high-frequency trading attempts
+// NOTE: Consider adding index on (from_address, created_at) for performance if not exists:
+//       CREATE INDEX idx_payments_from_address_created ON payments(from_address, created_at DESC);
+func (r *PaymentRepository) CountByAddressAndWindow(fromAddress string, window time.Duration) (int64, error) {
+	if fromAddress == "" {
+		return 0, errors.New("from address cannot be empty")
+	}
+
+	// Count only non-failed payments (failed payments don't count toward velocity limit)
+	query := `
+		SELECT COUNT(*)
+		FROM payments
+		WHERE from_address = $1
+		  AND created_at > $2
+		  AND status != 'failed'
+		  AND deleted_at IS NULL
+	`
+
+	windowStart := time.Now().Add(-window)
+	var count int64
+	err := r.db.QueryRow(query, fromAddress, windowStart).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count payments by address and window: %w", err)
+	}
+
+	return count, nil
+}
+
 // Delete soft-deletes a payment by setting the deleted_at timestamp
 func (r *PaymentRepository) Delete(id string) error {
 	if id == "" {
