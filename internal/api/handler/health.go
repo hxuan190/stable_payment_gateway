@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/dto"
-	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )

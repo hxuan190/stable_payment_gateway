@@ -14,7 +14,7 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/websocket"
-	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
 	paymenthttp "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/http"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"

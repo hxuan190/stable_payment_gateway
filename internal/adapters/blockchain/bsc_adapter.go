@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
 
-	"stable_payment_gateway/internal/blockchain/bsc"
+	"stable_payment_gateway/internal/modules/blockchain/bsc"
 	"stable_payment_gateway/internal/ports"
 )
 
