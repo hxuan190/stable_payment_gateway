@@ -14,15 +14,19 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/websocket"
-	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
+	compliancehandler "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/handler"
+	merchanthandler "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/handler"
 	paymenthttp "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/http"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
 	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
+	payouthandler "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/storage"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/service"
@@ -217,8 +221,17 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	}
 	exchangeRateHTTPAdapter := legacy.NewExchangeRateHTTPAdapter(exchangeRateService)
 	paymentHandler := paymenthttp.NewPaymentHandler(paymentService, complianceService, exchangeRateHTTPAdapter, baseURL)
-	payoutHandler := handler.NewPayoutHandler(payoutService)
-	kycHandler := handler.NewKYCHandler(kycDocumentRepo, merchantRepo, complianceService, s.config.Storage)
+
+	// Use module handlers
+	payoutHandler := payouthandler.NewPayoutHandler(payoutService)
+
+	// Create storage adapter for KYC handler
+	storageAdapter := storage.NewS3StorageService(s.config.Storage.Bucket, s.config.Storage.Region, s.config.Storage.AccessKey, s.config.Storage.SecretKey)
+	kycHandler := merchanthandler.NewKYCHandler(storageAdapter, kycDocumentRepo)
+
+	// Compliance module handlers
+	amlRuleHandler := compliancehandler.NewAMLRuleHandler(amlRuleRepo)
+
 	adminHandler := handler.NewAdminHandler(
 		merchantService,
 		payoutService,
@@ -331,7 +344,6 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		adminGroup.GET("/stats/daily", adminHandler.GetDailyStats)
 
 		// AML rule management
-		amlRuleHandler := handler.NewAMLRuleHandler(amlRuleRepo)
 		amlRules := adminGroup.Group("/aml-rules")
 		{
 			amlRules.GET("", amlRuleHandler.ListRules)
