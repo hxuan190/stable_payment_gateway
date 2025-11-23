@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +16,9 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
+	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
+	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
@@ -52,8 +55,7 @@ func main() {
 
 	// Initialize repositories
 	balanceRepo := repository.NewWalletBalanceRepository(db)
-	paymentRepo := repository.NewPaymentRepository(db, appLogger)
-	merchantRepo := repository.NewMerchantRepository(db, appLogger)
+	merchantRepo := repository.NewMerchantRepository(db)
 	auditRepo := repository.NewAuditLogRepository(db, appLogger)
 	complianceAlertRepo := repository.NewComplianceAlertRepository(db)
 
@@ -66,17 +68,20 @@ func main() {
 	})
 
 	// Initialize AML service for compliance screening
-	amlService := initializeAMLService(cfg, auditRepo, paymentRepo, appLogger)
+	amlService := initializeAMLService(cfg, auditRepo, appLogger)
 
 	appLogger.Info("AML screening service initialized")
+
+	// Initialize payment repository for new module
+	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(db)
 
 	// Initialize compliance alert service
 	complianceAlertService := service.NewComplianceAlertService(service.ComplianceAlertServiceConfig{
 		ComplianceAlertRepo: complianceAlertRepo,
-		PaymentRepo:         paymentRepo,
+		PaymentRepo:         legacy.NewPaymentRepositoryLegacyAdapter(newPaymentRepo),
 		NotificationService: notificationService,
 		Logger:              appLogger,
-		OpsTeamEmails:       cfg.OpsTeamEmails, // From config
+		OpsTeamEmails:       cfg.OpsTeamEmails,
 	})
 
 	appLogger.Info("Compliance alert service initialized")
@@ -102,7 +107,7 @@ func main() {
 	appLogger.Info("Wallet health check passed")
 
 	// Initialize payment service for transaction confirmation
-	paymentService := initializePaymentService(cfg, paymentRepo, merchantRepo, solanaWallet, appLogger)
+	paymentService := initializePaymentService(cfg, db, merchantRepo, solanaWallet, appLogger)
 
 	// Create payment confirmation callback with AML screening
 	confirmationCallback := createPaymentConfirmationCallback(
@@ -273,10 +278,8 @@ func getNetworkFromString(network string) model.Network {
 func initializeAMLService(
 	cfg *config.Config,
 	auditRepo *repository.AuditLogRepository,
-	paymentRepo *repository.PaymentRepository,
 	appLogger *logrus.Logger,
 ) service.AMLService {
-	// Initialize TRM Labs client (or mock if no API key)
 	var trmClient service.TRMLabsClient
 
 	if cfg.TRM.APIKey != "" && cfg.TRM.BaseURL != "" {
@@ -296,7 +299,7 @@ func initializeAMLService(
 	return service.NewAMLService(
 		trmClient,
 		auditRepo,
-		paymentRepo,
+		nil,
 		appLogger,
 	)
 }
@@ -304,25 +307,26 @@ func initializeAMLService(
 // initializePaymentService creates a payment service instance
 func initializePaymentService(
 	cfg *config.Config,
-	paymentRepo *repository.PaymentRepository,
+	db *sql.DB,
 	merchantRepo *repository.MerchantRepository,
 	solanaWallet *solana.Wallet,
 	appLogger *logrus.Logger,
-) *service.PaymentService {
-	// For the listener, we don't need exchange rate service or compliance service
-	// We only need to confirm payments
-	return service.NewPaymentService(
-		paymentRepo,
-		merchantRepo,
-		nil, // No exchange rate service needed for confirmation
-		nil, // No compliance service needed (already checked during creation)
-		service.PaymentServiceConfig{
-			DefaultChain:    model.ChainSolana,
+) *paymentservice.PaymentService {
+	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(db)
+	merchantAdapter := legacy.NewMerchantRepositoryAdapter(merchantRepo)
+	return paymentservice.NewPaymentService(
+		newPaymentRepo,
+		merchantAdapter,
+		nil,
+		nil,
+		nil,
+		paymentservice.PaymentServiceConfig{
+			DefaultChain:    "solana",
 			DefaultCurrency: "USDT",
 			WalletAddress:   solanaWallet.GetAddress(),
 			FeePercentage:   0.01,
 			ExpiryMinutes:   30,
-			RedisClient:     nil, // TODO: Add Redis if available
+			RedisClient:     nil,
 		},
 		appLogger,
 	)
@@ -330,7 +334,7 @@ func initializePaymentService(
 
 // createPaymentConfirmationCallback creates a callback function with AML screening
 func createPaymentConfirmationCallback(
-	paymentService *service.PaymentService,
+	paymentService *paymentservice.PaymentService,
 	amlService service.AMLService,
 	complianceAlertService *service.ComplianceAlertService,
 	appLogger *logrus.Logger,
@@ -357,12 +361,12 @@ func createPaymentConfirmationCallback(
 		// In a full implementation, the listener would pass from_address to this callback
 
 		// Create confirmation request
-		confirmReq := service.ConfirmPaymentRequest{
+		confirmReq := paymentservice.ConfirmPaymentRequest{
 			PaymentID:     paymentID,
 			TxHash:        txHash,
 			ActualAmount:  amount,
-			Confirmations: 1,  // Solana finalized = sufficient
-			FromAddress:   "", // Will be extracted from transaction
+			Confirmations: 1,
+			FromAddress:   "",
 		}
 
 		// Confirm the payment

@@ -16,7 +16,11 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/api/websocket"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	paymenthttp "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/http"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
+	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
+	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
+	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
@@ -153,13 +157,16 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 
 	// Initialize repositories
 	merchantRepo := s.initMerchantRepository()
-	paymentRepo := s.initPaymentRepository()
 	payoutRepo := s.initPayoutRepository()
 	balanceRepo := s.initBalanceRepository()
 	ledgerRepo := s.initLedgerRepository()
 	auditRepo := s.initAuditRepository()
 	travelRuleRepo := s.initTravelRuleRepository()
 	kycDocumentRepo := s.initKYCDocumentRepository()
+	amlRuleRepo := s.initAMLRuleRepository()
+
+	// Initialize NEW Payment Module (Hexagonal Architecture) - needed early for AML service
+	paymentRepo := paymentrepo.NewPostgresPaymentRepository(s.db)
 
 	// Initialize services
 	exchangeRateService := s.initExchangeRateService()
@@ -169,11 +176,36 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	merchantService := s.initMerchantService(merchantRepo, balanceRepo)
 
 	// Initialize compliance services (must be before payment service)
-	amlService := s.initAMLService(auditRepo, paymentRepo)
+	amlService := s.initAMLService(auditRepo, paymentRepo, amlRuleRepo)
 	complianceService := s.initComplianceService(amlService, merchantRepo, travelRuleRepo, kycDocumentRepo, paymentRepo, auditRepo)
+	merchantAdapter := legacy.NewMerchantRepositoryAdapter(merchantRepo)
+	exchangeRateAdapter := legacy.NewExchangeRateServiceAdapter(exchangeRateService)
+	complianceAdapter := legacy.NewComplianceServiceAdapter(complianceService)
+	amlAdapter := legacy.NewAMLServiceAdapter(amlService)
 
-	// Initialize payment service with compliance
-	paymentService := s.initPaymentService(paymentRepo, merchantRepo, exchangeRateService, complianceService)
+	// Get Redis client if available
+	var redisClient *redis.Client
+	if redisCache, ok := s.cache.(*cache.RedisCache); ok {
+		redisClient = redisCache.GetClient()
+	}
+
+	paymentService := paymentservice.NewPaymentService(
+		paymentRepo,
+		merchantAdapter,
+		exchangeRateAdapter,
+		complianceAdapter,
+		amlAdapter,
+		paymentservice.PaymentServiceConfig{
+			DefaultChain:    "solana",
+			DefaultCurrency: "USDT",
+			WalletAddress:   s.solanaWallet.GetAddress(),
+			FeePercentage:   0.01,
+			ExpiryMinutes:   30,
+			RedisClient:     redisClient,
+		},
+		logger.GetLogger().Logger,
+	)
+
 	payoutService := s.initPayoutService(payoutRepo, merchantRepo, balanceRepo, ledgerService)
 
 	// Initialize handlers
@@ -182,7 +214,8 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	if baseURL == "" {
 		baseURL = fmt.Sprintf("http://%s:%d", s.config.API.Host, s.config.API.Port)
 	}
-	paymentHandler := handler.NewPaymentHandler(paymentService, complianceService, exchangeRateService, baseURL)
+	exchangeRateHTTPAdapter := legacy.NewExchangeRateHTTPAdapter(exchangeRateService)
+	paymentHandler := paymenthttp.NewPaymentHandler(paymentService, complianceService, exchangeRateHTTPAdapter, baseURL)
 	payoutHandler := handler.NewPayoutHandler(payoutService)
 	kycHandler := handler.NewKYCHandler(kycDocumentRepo, merchantRepo, complianceService, s.config.Storage)
 	adminHandler := handler.NewAdminHandler(
@@ -191,7 +224,7 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		complianceService,
 		merchantRepo,
 		payoutRepo,
-		paymentRepo,
+		legacyPaymentRepo,
 		balanceRepo,
 		travelRuleRepo,
 		kycDocumentRepo,
@@ -295,6 +328,19 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		// System statistics
 		adminGroup.GET("/stats", adminHandler.GetStats)
 		adminGroup.GET("/stats/daily", adminHandler.GetDailyStats)
+
+		// AML rule management
+		amlRuleHandler := handler.NewAMLRuleHandler(amlRuleRepo)
+		amlRules := adminGroup.Group("/aml-rules")
+		{
+			amlRules.GET("", amlRuleHandler.ListRules)
+			amlRules.GET("/:id", amlRuleHandler.GetRule)
+			amlRules.GET("/category/:category", amlRuleHandler.GetRulesByCategory)
+			amlRules.POST("", amlRuleHandler.CreateRule)
+			amlRules.PUT("/:id", amlRuleHandler.UpdateRule)
+			amlRules.DELETE("/:id", amlRuleHandler.DeleteRule)
+			amlRules.PATCH("/:id/toggle", amlRuleHandler.ToggleRule)
+		}
 	}
 
 	// 404 handler
@@ -366,7 +412,7 @@ func (s *Server) initMerchantRepository() *repository.MerchantRepository {
 	return repository.NewMerchantRepository(s.db, logger.GetLogger())
 }
 
-func (s *Server) initPaymentRepository() *repository.PaymentRepository {
+func (s *Server) initLegacyPaymentRepository() *repository.PaymentRepository {
 	return repository.NewPaymentRepository(s.db, logger.GetLogger())
 }
 
@@ -394,34 +440,7 @@ func (s *Server) initExchangeRateService() *service.ExchangeRateService {
 	)
 }
 
-func (s *Server) initPaymentService(
-	paymentRepo *repository.PaymentRepository,
-	merchantRepo *repository.MerchantRepository,
-	exchangeRateService *service.ExchangeRateService,
-	complianceService service.ComplianceService,
-) *service.PaymentService {
-	// Get Redis client if available
-	var redisClient *redis.Client
-	if redisCache, ok := s.cache.(*cache.RedisCache); ok {
-		redisClient = redisCache.GetClient()
-	}
-
-	return service.NewPaymentService(
-		paymentRepo,
-		merchantRepo,
-		exchangeRateService,
-		complianceService, // Pass compliance service for pre-payment validation
-		service.PaymentServiceConfig{
-			DefaultChain:    model.ChainSolana,
-			DefaultCurrency: "USDT",
-			WalletAddress:   s.solanaWallet.GetAddress(),
-			FeePercentage:   0.01, // 1% fee
-			ExpiryMinutes:   30,   // 30 minutes expiry
-			RedisClient:     redisClient,
-		},
-		logger.GetLogger(),
-	)
-}
+// Legacy payment service initialization removed - now using new Payment Module
 
 func (s *Server) initLedgerService(
 	ledgerRepo *repository.LedgerRepository,
@@ -467,17 +486,29 @@ func (s *Server) initKYCDocumentRepository() *repository.KYCDocumentRepository {
 	return repository.NewKYCDocumentRepository(s.db, logger.GetLogger())
 }
 
+func (s *Server) initAMLRuleRepository() *repository.AMLRuleRepository {
+	return repository.NewAMLRuleRepository(s.db, logger.GetLogger())
+}
+
 func (s *Server) initAMLService(
 	auditRepo *repository.AuditRepository,
-	paymentRepo *repository.PaymentRepository,
+	paymentRepo paymentdomain.PaymentRepository,
+	ruleRepo *repository.AMLRuleRepository,
 ) service.AMLService {
-	// Initialize TRM Labs client (with mock for development)
 	trmClient := s.initTRMLabsClient()
+	ruleEngine := service.NewRuleEngine(ruleRepo, paymentRepo, logger.GetLogger())
+
+	var redisClient *redis.Client
+	if redisCache, ok := s.cache.(*cache.RedisCache); ok {
+		redisClient = redisCache.GetClient()
+	}
 
 	return service.NewAMLService(
 		trmClient,
 		auditRepo,
 		paymentRepo,
+		ruleEngine,
+		redisClient,
 		logger.GetLogger(),
 	)
 }
@@ -508,17 +539,53 @@ func (s *Server) initTRMLabsClient() service.TRMLabsClient {
 func (s *Server) initComplianceService(
 	amlService service.AMLService,
 	merchantRepo *repository.MerchantRepository,
-	travelRuleRepo *repository.TravelRuleRepository,
-	kycDocumentRepo *repository.KYCDocumentRepository,
-	paymentRepo *repository.PaymentRepository,
+	travelRuleRepo repository.TravelRuleRepository,
+	kycDocumentRepo repository.KYCDocumentRepository,
+	paymentRepo paymentdomain.PaymentRepository,
 	auditRepo *repository.AuditRepository,
 ) service.ComplianceService {
+	paymentRepoInterface := struct {
+		GetByID(id string) (*model.Payment, error)
+		ListByMerchant(merchantID string, limit, offset int) ([]*model.Payment, error)
+	}{
+		GetByID: func(id string) (*model.Payment, error) {
+			payment, err := paymentRepo.GetByID(id)
+			if err != nil {
+				return nil, err
+			}
+			return &model.Payment{
+				ID:           payment.ID,
+				MerchantID:   payment.MerchantID,
+				Status:       model.PaymentStatus(payment.Status),
+				AmountCrypto: payment.AmountCrypto,
+				Chain:        model.Chain(payment.Chain),
+			}, nil
+		},
+		ListByMerchant: func(merchantID string, limit, offset int) ([]*model.Payment, error) {
+			payments, err := paymentRepo.ListByMerchant(merchantID, limit, offset)
+			if err != nil {
+				return nil, err
+			}
+			result := make([]*model.Payment, len(payments))
+			for i, p := range payments {
+				result[i] = &model.Payment{
+					ID:           p.ID,
+					MerchantID:   p.MerchantID,
+					Status:       model.PaymentStatus(p.Status),
+					AmountCrypto: p.AmountCrypto,
+					Chain:        model.Chain(p.Chain),
+				}
+			}
+			return result, nil
+		},
+	}
+
 	return service.NewComplianceService(
 		amlService,
 		merchantRepo,
 		travelRuleRepo,
 		kycDocumentRepo,
-		paymentRepo,
+		paymentRepoInterface,
 		auditRepo,
 		logger.GetLogger(),
 	)

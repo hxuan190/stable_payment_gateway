@@ -15,7 +15,8 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
+	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	jwtpkg "github.com/hxuan190/stable_payment_gateway/internal/pkg/jwt"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -139,7 +140,8 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 
 	// Initialize repositories
 	merchantRepo := repository.NewMerchantRepository(s.db)
-	paymentRepo := repository.NewPaymentRepository(s.db)
+	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(s.db)
+	paymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(newPaymentRepo)
 	payoutRepo := repository.NewPayoutRepository(s.db)
 	balanceRepo := repository.NewBalanceRepository(s.db)
 	ledgerRepo := repository.NewLedgerRepository(s.db)
@@ -202,10 +204,15 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 	merchantService := service.NewMerchantService(merchantRepo, balanceRepo, s.db)
 
 	// Initialize AML service first (required by compliance service)
+	amlRuleRepo := repository.NewAMLRuleRepository(s.db, repoLogger)
+	ruleEngine := service.NewRuleEngine(amlRuleRepo, paymentRepo, repoLogger)
+
 	amlService := service.NewAMLService(
 		trmClient,
 		auditRepo,
 		paymentRepo,
+		ruleEngine,
+		s.cache,
 		repoLogger,
 	)
 
@@ -271,6 +278,9 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 			storageAdapter := &kycStorageAdapter{storage: storageService}
 			kycHandler := handler.NewKYCHandler(storageAdapter, kycDocumentRepo)
 
+			// AML rule management handler
+			amlRuleHandler := handler.NewAMLRuleHandler(amlRuleRepo)
+
 			// Merchant management routes
 			merchants := protected.Group("/merchants")
 			{
@@ -283,37 +293,37 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 			// KYC management routes
 			kyc := protected.Group("/kyc")
 			{
-				kyc.GET("/pending", adminHandler.GetPendingKYC)        // Get pending KYC applications
-				kyc.POST("/:id/approve", adminHandler.ApproveKYC)      // Approve KYC
-				kyc.POST("/:id/reject", adminHandler.RejectKYC)        // Reject KYC
-				kyc.GET("/documents/:id", kycHandler.GetDocument)      // Get KYC document
+				kyc.GET("/pending", adminHandler.GetPendingKYC)         // Get pending KYC applications
+				kyc.POST("/:id/approve", adminHandler.ApproveKYC)       // Approve KYC
+				kyc.POST("/:id/reject", adminHandler.RejectKYC)         // Reject KYC
+				kyc.GET("/documents/:id", kycHandler.GetDocument)       // Get KYC document
 				kyc.DELETE("/documents/:id", kycHandler.DeleteDocument) // Delete KYC document
 			}
 
 			// Payout management routes
 			payouts := protected.Group("/payouts")
 			{
-				payouts.GET("", adminHandler.ListPayouts)              // List all payouts
-				payouts.GET("/:id", adminHandler.GetPayout)            // Get payout details
-				payouts.POST("/:id/approve", adminHandler.ApprovePayout) // Approve payout
-				payouts.POST("/:id/reject", adminHandler.RejectPayout)   // Reject payout
+				payouts.GET("", adminHandler.ListPayouts)                  // List all payouts
+				payouts.GET("/:id", adminHandler.GetPayout)                // Get payout details
+				payouts.POST("/:id/approve", adminHandler.ApprovePayout)   // Approve payout
+				payouts.POST("/:id/reject", adminHandler.RejectPayout)     // Reject payout
 				payouts.POST("/:id/complete", adminHandler.CompletePayout) // Mark as completed
 			}
 
 			// Payment monitoring routes
 			payments := protected.Group("/payments")
 			{
-				payments.GET("", adminHandler.ListPayments)        // List all payments
-				payments.GET("/:id", adminHandler.GetPayment)      // Get payment details
+				payments.GET("", adminHandler.ListPayments)          // List all payments
+				payments.GET("/:id", adminHandler.GetPayment)        // Get payment details
 				payments.GET("/stats", adminHandler.GetPaymentStats) // Get payment statistics
 			}
 
 			// System monitoring routes
 			system := protected.Group("/system")
 			{
-				system.GET("/stats", adminHandler.GetSystemStats)           // System-wide statistics
+				system.GET("/stats", adminHandler.GetSystemStats)            // System-wide statistics
 				system.GET("/wallet-balance", adminHandler.GetWalletBalance) // Hot wallet balance
-				system.GET("/audit-logs", adminHandler.GetAuditLogs)        // Audit logs
+				system.GET("/audit-logs", adminHandler.GetAuditLogs)         // Audit logs
 			}
 
 			// Compliance routes
@@ -321,6 +331,18 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 			{
 				compliance.GET("/high-risk", adminHandler.GetHighRiskTransactions) // High-risk transactions
 				compliance.GET("/travel-rule", adminHandler.GetTravelRuleData)     // Travel rule data
+			}
+
+			// AML rule management routes
+			amlRules := protected.Group("/aml-rules")
+			{
+				amlRules.GET("", amlRuleHandler.ListRules)                             // List all rules
+				amlRules.GET("/:id", amlRuleHandler.GetRule)                           // Get rule by ID
+				amlRules.GET("/category/:category", amlRuleHandler.GetRulesByCategory) // Get rules by category
+				amlRules.POST("", amlRuleHandler.CreateRule)                           // Create new rule
+				amlRules.PUT("/:id", amlRuleHandler.UpdateRule)                        // Update rule
+				amlRules.DELETE("/:id", amlRuleHandler.DeleteRule)                     // Delete rule
+				amlRules.PATCH("/:id/toggle", amlRuleHandler.ToggleRule)               // Enable/disable rule
 			}
 		}
 	}

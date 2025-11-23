@@ -8,6 +8,9 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
+	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
+	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
@@ -16,33 +19,33 @@ import (
 
 // Server represents the worker server
 type Server struct {
-	server               *asynq.Server
-	mux                  *asynq.ServeMux
-	scheduler            *asynq.Scheduler
-	db                   *sql.DB
-	cache                cache.Cache
-	solanaClient         *solana.Client
-	solanaWallet         *solana.Wallet
-	paymentService       *service.PaymentService
-	notificationSvc      *service.NotificationService
+	server                *asynq.Server
+	mux                   *asynq.ServeMux
+	scheduler             *asynq.Scheduler
+	db                    *sql.DB
+	cache                 cache.Cache
+	solanaClient          *solana.Client
+	solanaWallet          *solana.Wallet
+	paymentService        *paymentservice.PaymentService
+	notificationSvc       *service.NotificationService
 	reconciliationService *service.ReconciliationService
-	merchantRepo         repository.MerchantRepository
-	paymentRepo          repository.PaymentRepository
-	payoutRepo           repository.PayoutRepository
-	walletBalanceRepo    repository.WalletBalanceRepository
+	merchantRepo          repository.MerchantRepository
+	paymentRepo           *legacy.PaymentRepositoryLegacyAdapter
+	payoutRepo            repository.PayoutRepository
+	walletBalanceRepo     repository.WalletBalanceRepository
 }
 
 // ServerConfig holds configuration for the worker server
 type ServerConfig struct {
-	RedisAddr        string
-	RedisPassword    string
-	RedisDB          int
-	DB               *sql.DB
-	Cache            cache.Cache
-	SolanaClient     *solana.Client
-	SolanaWallet     *solana.Wallet
-	Concurrency      int
-	Queues           map[string]int // Queue name to priority mapping
+	RedisAddr     string
+	RedisPassword string
+	RedisDB       int
+	DB            *sql.DB
+	Cache         cache.Cache
+	SolanaClient  *solana.Client
+	SolanaWallet  *solana.Wallet
+	Concurrency   int
+	Queues        map[string]int // Queue name to priority mapping
 }
 
 // NewServer creates a new worker server instance
@@ -103,7 +106,6 @@ func NewServer(cfg *ServerConfig) *Server {
 
 	// Initialize repositories
 	merchantRepo := repository.NewMerchantRepository(cfg.DB)
-	paymentRepo := repository.NewPaymentRepository(cfg.DB)
 	payoutRepo := repository.NewPayoutRepository(cfg.DB)
 	ledgerRepo := repository.NewLedgerRepository(cfg.DB)
 	balanceRepo := repository.NewBalanceRepository(cfg.DB)
@@ -111,17 +113,30 @@ func NewServer(cfg *ServerConfig) *Server {
 	walletBalanceRepo := repository.NewWalletBalanceRepository(cfg.DB)
 	reconciliationRepo := repository.NewReconciliationRepository(cfg.DB)
 
+	// Initialize new payment module
+	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(cfg.DB)
+	paymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(newPaymentRepo)
+	merchantAdapter := legacy.NewMerchantRepositoryAdapter(merchantRepo)
+
 	// Initialize services
 	exchangeRateService := service.NewExchangeRateService(cfg.Cache)
 	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, cfg.DB)
 	notificationService := service.NewNotificationService(merchantRepo, auditRepo)
-	paymentService := service.NewPaymentService(
-		paymentRepo,
-		merchantRepo,
-		ledgerService,
-		exchangeRateService,
-		notificationService,
-		auditRepo,
+	paymentService := paymentservice.NewPaymentService(
+		newPaymentRepo,
+		merchantAdapter,
+		nil,
+		nil,
+		nil,
+		paymentservice.PaymentServiceConfig{
+			DefaultChain:    "solana",
+			DefaultCurrency: "USDT",
+			WalletAddress:   "",
+			FeePercentage:   0.01,
+			ExpiryMinutes:   30,
+			RedisClient:     nil,
+		},
+		logger.GetLogger().Logger,
 	)
 	reconciliationService := service.NewReconciliationService(
 		cfg.DB,

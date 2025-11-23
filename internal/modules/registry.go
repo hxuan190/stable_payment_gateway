@@ -10,6 +10,8 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/bsc"
 	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
+	paymentHandler "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/http"
+	paymentService "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/shared/events"
 )
@@ -34,8 +36,8 @@ type ModuleRegistry struct {
 
 // PaymentModule encapsulates payment domain
 type PaymentModule struct {
-	Service *service.PaymentService
-	Handler *handler.PaymentHandler
+	Service *paymentService.PaymentService
+	Handler *paymentHandler.PaymentHandler
 }
 
 // MerchantModule encapsulates merchant domain
@@ -74,7 +76,7 @@ type NotificationModule struct {
 // RegistryConfig holds configuration for module registry
 type RegistryConfig struct {
 	// Services (initialized elsewhere)
-	PaymentService      *service.PaymentService
+	PaymentService      *paymentService.PaymentService
 	MerchantService     *service.MerchantService
 	PayoutService       *service.PayoutService
 	ComplianceService   *service.ComplianceService
@@ -82,7 +84,7 @@ type RegistryConfig struct {
 	NotificationService *service.NotificationService
 
 	// Handlers
-	PaymentHandler  *handler.PaymentHandler
+	PaymentHandler  *paymentHandler.PaymentHandler
 	MerchantHandler *handler.MerchantHandler
 	PayoutHandler   *handler.PayoutHandler
 

@@ -13,6 +13,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
@@ -36,14 +37,10 @@ var (
 )
 
 const (
-	// VelocityLimit24H is the maximum number of transactions allowed per wallet address in 24 hours
-	// This prevents spam, high-frequency trading attempts, and basic laundering patterns
-	VelocityLimit24H = 10
-
 	// Risk score thresholds based on Kill Switch model
-	RiskScoreCriticalThreshold = 86 // Block transaction
-	RiskScoreHighThreshold     = 61 // Hold for manual review
-	RiskScoreMediumThreshold   = 20 // Warning log
+	RiskScoreCriticalThreshold = 86
+	RiskScoreHighThreshold     = 61
+	RiskScoreMediumThreshold   = 20
 
 	// Cache TTL for wallet screening results (24 hours)
 	WalletScreeningCacheTTL = 24 * time.Hour
@@ -56,7 +53,7 @@ const (
 type AMLScreeningResult struct {
 	WalletAddress string
 	Chain         string
-	RiskScore     int      // 0-100
+	RiskScore     int // 0-100
 	IsSanctioned  bool
 	Flags         []string
 	Details       map[string]string
@@ -72,14 +69,14 @@ type AMLService interface {
 }
 
 type amlServiceImpl struct {
-	trmClient  TRMLabsClient
-	auditRepo  *repository.AuditRepository  // Fixed: correct repository type
-	paymentRepo repository.PaymentRepository
-	redisClient *redis.Client // Redis client for caching screening results
-	logger     *logger.Logger
-	// Risk thresholds
-	riskScoreThreshold int  // Reject if risk score >= this value (deprecated, use constants)
-	autoRejectSanctioned bool // Auto-reject sanctioned addresses
+	trmClient            TRMLabsClient
+	auditRepo            *repository.AuditRepository
+	paymentRepo          paymentdomain.PaymentRepository
+	ruleEngine           *RuleEngine
+	redisClient          *redis.Client
+	logger               *logger.Logger
+	riskScoreThreshold   int
+	autoRejectSanctioned bool
 }
 
 // TRMLabsClient is an interface for TRM Labs screening client
@@ -89,22 +86,23 @@ type TRMLabsClient interface {
 	BatchScreenAddresses(ctx context.Context, addresses []string, chain string) (map[string]*trmlabs.ScreeningResponse, error)
 }
 
-// NewAMLService creates a new AML service
 func NewAMLService(
 	trmClient TRMLabsClient,
-	auditRepo *repository.AuditRepository,  // Fixed: correct repository type
-	paymentRepo repository.PaymentRepository,
+	auditRepo *repository.AuditRepository,
+	paymentRepo paymentdomain.PaymentRepository,
+	ruleEngine *RuleEngine,
 	redisClient *redis.Client,
 	logger *logger.Logger,
 ) AMLService {
 	return &amlServiceImpl{
-		trmClient:  trmClient,
-		auditRepo:  auditRepo,
-		paymentRepo: paymentRepo,
-		redisClient: redisClient,
-		logger:     logger,
-		riskScoreThreshold: RiskScoreCriticalThreshold, // Use constant: 86
-		autoRejectSanctioned: true, // Default: auto-reject sanctioned addresses
+		trmClient:            trmClient,
+		auditRepo:            auditRepo,
+		paymentRepo:          paymentRepo,
+		ruleEngine:           ruleEngine,
+		redisClient:          redisClient,
+		logger:               logger,
+		riskScoreThreshold:   RiskScoreCriticalThreshold,
+		autoRejectSanctioned: true,
 	}
 }
 
@@ -199,12 +197,12 @@ func (s *amlServiceImpl) ScreenWalletAddress(ctx context.Context, address string
 	}
 
 	s.logger.Info("Wallet address screening completed", map[string]interface{}{
-		"address":         address,
-		"chain":           chain,
+		"address":           address,
+		"chain":             chain,
 		"custom_risk_score": result.RiskScore,
-		"trm_risk_score":   trmResult.RiskScore,
-		"is_sanctioned":    result.IsSanctioned,
-		"flags":            result.Flags,
+		"trm_risk_score":    trmResult.RiskScore,
+		"is_sanctioned":     result.IsSanctioned,
+		"flags":             result.Flags,
 	})
 
 	return result, nil
@@ -349,18 +347,18 @@ func (s *amlServiceImpl) RecordScreeningResult(ctx context.Context, paymentID uu
 	}
 
 	auditLog := &model.AuditLog{
-		ID:             uuid.New().String(),  // Fixed: convert UUID to string
+		ID:             uuid.New().String(), // Fixed: convert UUID to string
 		ActorType:      model.ActorTypeSystem,
 		Action:         "aml_screening",
 		ActionCategory: model.ActionCategoryPayment,
 		ResourceType:   "payment",
-		ResourceID:     paymentID.String(),  // Fixed: convert UUID to string
+		ResourceID:     paymentID.String(), // Fixed: convert UUID to string
 		Status:         model.AuditStatusSuccess,
 		Metadata:       metadata,
 		CreatedAt:      time.Now(),
 	}
 
-	if err := s.auditRepo.Create(auditLog); err != nil {  // Fixed: removed ctx parameter
+	if err := s.auditRepo.Create(auditLog); err != nil { // Fixed: removed ctx parameter
 		s.logger.Error("Failed to record AML screening result", err, map[string]interface{}{
 			"payment_id": paymentID,
 		})
@@ -380,23 +378,33 @@ func (s *amlServiceImpl) ValidateTransaction(ctx context.Context, paymentID uuid
 		"amount":       amount.String(),
 	})
 
-	// Step 1: Velocity check (first line of defense against spam/high-frequency abuse)
-	// Check transaction count from this wallet in the last 24 hours
-	txCount, err := s.paymentRepo.CountByAddressAndWindow(fromAddress, 24*time.Hour)
+	// Step 1: Evaluate velocity rules (database-backed rule engine)
+	evalCtx := &RuleEvaluationContext{
+		PaymentID:   paymentID,
+		FromAddress: fromAddress,
+		Chain:       chain,
+		Amount:      amount,
+		Timestamp:   time.Now(),
+	}
+
+	ruleResults, err := s.ruleEngine.EvaluateVelocityRules(ctx, evalCtx)
 	if err != nil {
-		s.logger.Error("Failed to check velocity limit", err, map[string]interface{}{
+		s.logger.Error("Failed to evaluate velocity rules", err, map[string]interface{}{
 			"payment_id":   paymentID,
 			"from_address": fromAddress,
 		})
-		// Don't fail transaction if velocity check fails - log and continue
-	} else if txCount >= VelocityLimit24H {
-		s.logger.Warn("Transaction rejected: velocity limit exceeded", map[string]interface{}{
-			"payment_id":      paymentID,
-			"from_address":    fromAddress,
-			"tx_count_24h":    txCount,
-			"velocity_limit":  VelocityLimit24H,
-		})
-		return ErrVelocityLimitExceeded
+	} else {
+		shouldBlock, blockingRule := s.ruleEngine.ShouldBlockTransaction(ruleResults)
+		if shouldBlock {
+			s.logger.Warn("Transaction blocked by velocity rule", map[string]interface{}{
+				"payment_id":   paymentID,
+				"from_address": fromAddress,
+				"rule_id":      blockingRule.RuleID,
+				"rule_name":    blockingRule.RuleName,
+				"reason":       blockingRule.Reason,
+			})
+			return ErrVelocityLimitExceeded
+		}
 	}
 
 	// Step 2: Screen the wallet address
@@ -474,12 +482,12 @@ func (s *amlServiceImpl) ValidateTransaction(ctx context.Context, paymentID uuid
 	}
 
 	s.logger.Info("Transaction PASSED AML validation", map[string]interface{}{
-		"payment_id":   paymentID,
-		"from_address": fromAddress,
-		"risk_score":   result.RiskScore,
-		"velocity_check": "passed",
+		"payment_id":      paymentID,
+		"from_address":    fromAddress,
+		"risk_score":      result.RiskScore,
+		"velocity_check":  "passed",
 		"sanctions_check": "passed",
-		"decision":      "allow",
+		"decision":        "allow",
 	})
 
 	return nil
@@ -491,7 +499,7 @@ func (s *amlServiceImpl) GetScreeningHistory(ctx context.Context, walletAddress 
 	// This is a simplified implementation - in production, you might want a dedicated table
 	action := "aml_screening"
 	resourceType := "payment"
-	auditLogs, err := s.auditRepo.List(repository.AuditFilter{  // Fixed: removed ctx parameter
+	auditLogs, err := s.auditRepo.List(repository.AuditFilter{ // Fixed: removed ctx parameter
 		Action:       &action,
 		ResourceType: &resourceType,
 		Limit:        100,

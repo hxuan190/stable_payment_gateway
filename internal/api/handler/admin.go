@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/dto"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
 	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/service"
 	"github.com/shopspring/decimal"
@@ -23,7 +24,7 @@ type AdminHandler struct {
 	complianceService service.ComplianceService
 	merchantRepo      *repository.MerchantRepository
 	payoutRepo        *repository.PayoutRepository
-	paymentRepo       *repository.PaymentRepository
+	paymentRepo       *legacy.PaymentRepositoryLegacyAdapter
 	balanceRepo       *repository.BalanceRepository
 	travelRuleRepo    repository.TravelRuleRepository
 	kycDocumentRepo   repository.KYCDocumentRepository
@@ -42,7 +43,7 @@ func NewAdminHandler(
 	complianceService service.ComplianceService,
 	merchantRepo *repository.MerchantRepository,
 	payoutRepo *repository.PayoutRepository,
-	paymentRepo *repository.PaymentRepository,
+	paymentRepo *legacy.PaymentRepositoryLegacyAdapter,
 	balanceRepo *repository.BalanceRepository,
 	travelRuleRepo repository.TravelRuleRepository,
 	kycDocumentRepo repository.KYCDocumentRepository,
