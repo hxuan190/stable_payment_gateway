@@ -164,6 +164,7 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	travelRuleRepo := s.initTravelRuleRepository()
 	kycDocumentRepo := s.initKYCDocumentRepository()
 	amlRuleRepo := s.initAMLRuleRepository()
+	legacyPaymentRepo := s.initLegacyPaymentRepository()
 
 	// Initialize NEW Payment Module (Hexagonal Architecture) - needed early for AML service
 	paymentRepo := paymentrepo.NewPostgresPaymentRepository(s.db)
