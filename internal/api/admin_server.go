@@ -13,8 +13,9 @@ import (
 
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
-	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
+	merchanthandler "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
@@ -276,7 +277,7 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 
 			// Create storage adapter for KYC handler
 			storageAdapter := &kycStorageAdapter{storage: storageService}
-			kycHandler := handler.NewKYCHandler(storageAdapter, kycDocumentRepo)
+			kycHandler := merchanthandler.NewKYCHandler(storageAdapter, kycDocumentRepo)
 
 			// AML rule management handler
 			amlRuleHandler := handler.NewAMLRuleHandler(amlRuleRepo)

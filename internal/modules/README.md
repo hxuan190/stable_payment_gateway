@@ -365,7 +365,7 @@ To refactor existing code into modules:
 ---
 
 **See Also**:
-- [Modular Architecture Documentation](../../MODULAR_ARCHITECTURE.md)
+- [Modular Architecture Documentation](/MODULAR_ARCHITECTURE.md)
 - [Shared Kernel Documentation](../shared/README.md)
 
-**Last Updated**: 2025-11-18
+**Last Updated**: 2025-11-23

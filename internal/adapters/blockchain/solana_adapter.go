@@ -9,7 +9,7 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/shopspring/decimal"
 
-	"stable_payment_gateway/internal/blockchain/solana"
+	"stable_payment_gateway/internal/modules/blockchain/solana"
 	"stable_payment_gateway/internal/ports"
 )
 
