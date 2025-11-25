@@ -9,20 +9,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/service"
+	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 )
 
 // MerchantHandler handles HTTP requests for merchant operations
 type MerchantHandler struct {
 	merchantService *service.MerchantService
-	paymentRepo     *repository.PaymentRepository
+	paymentRepo     paymentdomain.PaymentRepository
 }
 
 // NewMerchantHandler creates a new merchant handler instance
 func NewMerchantHandler(
 	merchantService *service.MerchantService,
-	paymentRepo *repository.PaymentRepository,
+	paymentRepo paymentdomain.PaymentRepository,
 ) *MerchantHandler {
 	return &MerchantHandler{
 		merchantService: merchantService,
@@ -44,16 +44,16 @@ func (h *MerchantHandler) RegisterMerchant(c *gin.Context) {
 	}
 
 	// Map DTO to service input
-	input := service.RegisterMerchantInput{
-		Email:                 req.Email,
-		BusinessName:          req.BusinessName,
-		BusinessTaxID:         req.TaxID,
-		OwnerFullName:         req.OwnerName,
-		PhoneNumber:           req.PhoneNumber,
-		BusinessAddress:       req.BusinessAddress,
-		BankAccountName:       req.BankAccountName,
-		BankAccountNumber:     req.BankAccountNumber,
-		BankName:              req.BankName,
+	input := service.RegisterMerchantRequest{
+		Email:             req.Email,
+		BusinessName:      req.BusinessName,
+		BusinessTaxID:     req.TaxID,
+		OwnerFullName:     req.OwnerName,
+		PhoneNumber:       req.PhoneNumber,
+		BusinessAddress:   req.BusinessAddress,
+		BankAccountName:   req.BankAccountName,
+		BankAccountNumber: req.BankAccountNumber,
+		BankName:          req.BankName,
 	}
 
 	// Register merchant

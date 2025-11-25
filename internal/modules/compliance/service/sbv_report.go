@@ -10,19 +10,20 @@ import (
 	"github.com/xuri/excelize/v2"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 )
 
 // SBVReportService handles generation of State Bank of Vietnam (SBV) regulatory reports
 type SBVReportService struct {
 	travelRuleRepo TravelRuleRepository
-	paymentRepo    PaymentRepository
+	paymentRepo    paymentdomain.PaymentRepository
 	logger         *logrus.Logger
 }
 
 // NewSBVReportService creates a new SBV report service
 func NewSBVReportService(
 	travelRuleRepo TravelRuleRepository,
-	paymentRepo PaymentRepository,
+	paymentRepo paymentdomain.PaymentRepository,
 	logger *logrus.Logger,
 ) *SBVReportService {
 	return &SBVReportService{
@@ -99,7 +100,11 @@ func (s *SBVReportService) GenerateExcelReport(ctx context.Context, req SBVRepor
 	f.SetActiveSheet(index)
 
 	// Delete default sheet if it exists
-	if f.GetSheetIndex("Sheet1") >= 0 {
+	index, err = f.GetSheetIndex("Sheet1")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sheet index: %w", err)
+	}
+	if index >= 0 {
 		f.DeleteSheet("Sheet1")
 	}
 
@@ -210,14 +215,14 @@ func (s *SBVReportService) GenerateExcelReport(ctx context.Context, req SBVRepor
 	}
 
 	// Set column widths
-	f.SetColWidth(sheetName, "A", "A", 18)  // Transaction Date
-	f.SetColWidth(sheetName, "B", "B", 25)  // Originator Name
-	f.SetColWidth(sheetName, "C", "C", 18)  // Originator Country
-	f.SetColWidth(sheetName, "D", "D", 30)  // Beneficiary Name
-	f.SetColWidth(sheetName, "E", "E", 20)  // Beneficiary Country
-	f.SetColWidth(sheetName, "F", "F", 20)  // Amount
-	f.SetColWidth(sheetName, "G", "G", 12)  // Currency
-	f.SetColWidth(sheetName, "H", "H", 30)  // Purpose
+	f.SetColWidth(sheetName, "A", "A", 18) // Transaction Date
+	f.SetColWidth(sheetName, "B", "B", 25) // Originator Name
+	f.SetColWidth(sheetName, "C", "C", 18) // Originator Country
+	f.SetColWidth(sheetName, "D", "D", 30) // Beneficiary Name
+	f.SetColWidth(sheetName, "E", "E", 20) // Beneficiary Country
+	f.SetColWidth(sheetName, "F", "F", 20) // Amount
+	f.SetColWidth(sheetName, "G", "G", 12) // Currency
+	f.SetColWidth(sheetName, "H", "H", 30) // Purpose
 
 	// Write data rows
 	for rowIdx, tr := range travelRuleData {

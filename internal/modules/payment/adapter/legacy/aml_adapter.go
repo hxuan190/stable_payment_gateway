@@ -3,15 +3,15 @@ package legacy
 import (
 	"context"
 
+	complianceservice "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
 )
 
 type AMLServiceAdapter struct {
-	svc service.AMLService
+	svc complianceservice.AMLService
 }
 
-func NewAMLServiceAdapter(svc service.AMLService) domain.AMLService {
+func NewAMLServiceAdapter(svc complianceservice.AMLService) domain.AMLService {
 	return &AMLServiceAdapter{svc: svc}
 }
 

@@ -10,10 +10,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// PaymentRepositoryInterface defines the interface for payment operations needed by compliance
+type PaymentRepositoryInterface interface {
+	GetByID(id string) (*model.Payment, error)
+	Update(payment *model.Payment) error
+	UpdateStatus(id string, status model.PaymentStatus) error
+}
+
 // ComplianceAlertService handles business logic for compliance alerts
 type ComplianceAlertService struct {
 	repo                *repository.ComplianceAlertRepository
-	paymentRepo         *repository.PaymentRepository
+	paymentRepo         PaymentRepositoryInterface
 	notificationService *NotificationService
 	logger              *logrus.Logger
 	opsTeamEmails       []string // Email addresses for compliance team
@@ -22,7 +29,7 @@ type ComplianceAlertService struct {
 // ComplianceAlertServiceConfig holds configuration for compliance alert service
 type ComplianceAlertServiceConfig struct {
 	ComplianceAlertRepo *repository.ComplianceAlertRepository
-	PaymentRepo         *repository.PaymentRepository
+	PaymentRepo         PaymentRepositoryInterface
 	NotificationService *NotificationService
 	Logger              *logrus.Logger
 	OpsTeamEmails       []string
@@ -80,7 +87,7 @@ func (s *ComplianceAlertService) CreateSanctionedAddressAlert(
 	alert.Blockchain = &blockchain
 	alert.RiskScore = &riskScore
 	alert.RiskFlags = riskFlags
-	alert.TransactionHash = &payment.TxHash
+	alert.TransactionHash = &payment.TxHash.String
 
 	// Add evidence
 	if evidence != nil {
@@ -160,7 +167,7 @@ func (s *ComplianceAlertService) CreateHighRiskAlert(
 	alert.Blockchain = &blockchain
 	alert.RiskScore = &riskScore
 	alert.RiskFlags = riskFlags
-	alert.TransactionHash = &payment.TxHash
+	alert.TransactionHash = &payment.TxHash.String
 
 	// Add evidence
 	if evidence != nil {
@@ -257,15 +264,15 @@ func (s *ComplianceAlertService) SendAlertNotification(ctx context.Context, aler
 
 	// Prepare email data
 	emailData := map[string]interface{}{
-		"alert_id":            alert.ID.String(),
-		"alert_type":          alert.AlertType,
-		"severity":            alert.Severity,
-		"details":             alert.Details,
-		"payment_id":          "",
-		"from_address":        "",
-		"blockchain":          "",
-		"risk_score":          "",
-		"recommended_action":  "",
+		"alert_id":           alert.ID.String(),
+		"alert_type":         alert.AlertType,
+		"severity":           alert.Severity,
+		"details":            alert.Details,
+		"payment_id":         "",
+		"from_address":       "",
+		"blockchain":         "",
+		"risk_score":         "",
+		"recommended_action": "",
 	}
 
 	if alert.PaymentID != nil {
@@ -285,15 +292,28 @@ func (s *ComplianceAlertService) SendAlertNotification(ctx context.Context, aler
 	}
 
 	// Send to all ops team members
-	var errors []error
-	for _, email := range s.opsTeamEmails {
-		if err := s.notificationService.SendComplianceAlertEmail(ctx, email, emailData); err != nil {
-			s.logger.WithFields(logrus.Fields{
-				"email":    email,
-				"alert_id": alert.ID,
-			}).WithError(err).Error("Failed to send compliance alert email")
-			errors = append(errors, err)
-		}
+	merchantID := ""
+	if alert.MerchantID != nil {
+		merchantID = alert.MerchantID.String()
+	}
+
+	requiredAction := ""
+	if alert.RecommendedAction != nil {
+		requiredAction = *alert.RecommendedAction
+	}
+
+	if err := s.notificationService.SendComplianceAlertEmail(
+		ctx,
+		s.opsTeamEmails,
+		string(alert.AlertType),
+		merchantID,
+		alert.Details,
+		requiredAction,
+	); err != nil {
+		s.logger.WithFields(logrus.Fields{
+			"alert_id": alert.ID,
+		}).WithError(err).Error("Failed to send compliance alert email")
+		return err
 	}
 
 	// Mark email as sent
@@ -302,13 +322,9 @@ func (s *ComplianceAlertService) SendAlertNotification(ctx context.Context, aler
 		s.logger.WithError(err).Error("Failed to update alert after sending email")
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to send %d/%d alert emails", len(errors), len(s.opsTeamEmails))
-	}
-
 	s.logger.WithFields(logrus.Fields{
-		"alert_id":    alert.ID,
-		"recipients":  len(s.opsTeamEmails),
+		"alert_id":   alert.ID,
+		"recipients": len(s.opsTeamEmails),
 	}).Info("Compliance alert notifications sent")
 
 	return nil

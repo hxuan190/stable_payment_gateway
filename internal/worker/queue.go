@@ -99,10 +99,6 @@ func (q *Queue) EnqueueWebhookDelivery(ctx context.Context, payload *WebhookDeli
 		asynq.MaxRetry(5),
 		asynq.Queue("webhooks"),
 		asynq.Timeout(30 * time.Second),
-		// Exponential backoff: 1s, 2s, 4s, 8s, 16s
-		asynq.RetryDelay(func(n int, err error, task *asynq.Task) time.Duration {
-			return time.Duration(1<<uint(n)) * time.Second
-		}),
 	}
 
 	// Enqueue with priority based on attempt number

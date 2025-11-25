@@ -8,7 +8,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	paymenthttp "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/http"
-	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
 	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
@@ -26,24 +25,24 @@ type Module struct {
 
 // Config holds configuration for payment module initialization
 type Config struct {
-	DB                   *sql.DB
-	RedisClient          *redis.Client
-	EventBus             events.EventBus
-	Logger               *logrus.Logger
+	DB          *sql.DB
+	RedisClient *redis.Client
+	EventBus    events.EventBus
+	Logger      *logrus.Logger
 
 	// Dependencies (injected as interfaces)
-	MerchantReader       paymentdomain.MerchantReader
+	MerchantReader       paymentdomain.MerchantRepository
 	ExchangeRateProvider paymentdomain.ExchangeRateProvider
-	ComplianceChecker    paymentdomain.ComplianceChecker
+	ComplianceChecker    paymentdomain.ComplianceService
 	AMLService           paymentdomain.AMLService
 
 	// Service configuration
-	DefaultChain         string
-	DefaultCurrency      string
-	WalletAddress        string
-	FeePercentage        float64
-	ExpiryMinutes        int
-	BaseURL              string // For QR code generation
+	DefaultChain    string
+	DefaultCurrency string
+	WalletAddress   string
+	FeePercentage   float64
+	ExpiryMinutes   int
+	BaseURL         string // For QR code generation
 }
 
 // NewModule creates and initializes the payment module
@@ -67,7 +66,7 @@ func NewModule(cfg Config) (*Module, error) {
 
 	// Initialize service (core business logic)
 	serviceConfig := paymentservice.PaymentServiceConfig{
-		DefaultChain:    cfg.DefaultChain,
+		DefaultChain:    paymentdomain.Chain(cfg.DefaultChain),
 		DefaultCurrency: cfg.DefaultCurrency,
 		WalletAddress:   cfg.WalletAddress,
 		FeePercentage:   cfg.FeePercentage,
@@ -86,16 +85,10 @@ func NewModule(cfg Config) (*Module, error) {
 	)
 
 	// Initialize HTTP handler (adapter layer)
-	// For handler we need adapters for dependencies that aren't in the payment domain
-	var exchangeRateHTTPAdapter *legacy.ExchangeRateHTTPAdapter
-	if httpProvider, ok := cfg.ExchangeRateProvider.(*legacy.ExchangeRateServiceAdapter); ok {
-		exchangeRateHTTPAdapter = legacy.NewExchangeRateHTTPAdapter(httpProvider)
-	}
-
 	handler := paymenthttp.NewPaymentHandler(
 		service,
-		cfg.ComplianceChecker,
-		exchangeRateHTTPAdapter,
+		nil, // ComplianceChecker - optional for now
+		nil, // ExchangeRateHTTPAdapter - optional for now
 		cfg.BaseURL,
 	)
 

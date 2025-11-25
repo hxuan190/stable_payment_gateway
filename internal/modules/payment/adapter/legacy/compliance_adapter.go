@@ -6,8 +6,8 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
 )
 
 type ComplianceServiceAdapter struct {

@@ -7,14 +7,17 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
+	reconciliationservice "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/service"
+	ledgerrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
+	merchantrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
+	notificationservice "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
 	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
+	payoutrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
 )
 
 // Server represents the worker server
@@ -27,25 +30,29 @@ type Server struct {
 	solanaClient          *solana.Client
 	solanaWallet          *solana.Wallet
 	paymentService        *paymentservice.PaymentService
-	notificationSvc       *service.NotificationService
-	reconciliationService *service.ReconciliationService
-	merchantRepo          repository.MerchantRepository
+	notificationSvc       *notificationservice.NotificationService
+	reconciliationService *reconciliationservice.ReconciliationService
+	merchantRepo          *merchantrepository.Repository
 	paymentRepo           *legacy.PaymentRepositoryLegacyAdapter
-	payoutRepo            repository.PayoutRepository
-	walletBalanceRepo     repository.WalletBalanceRepository
+	payoutRepo            *payoutrepository.Repository
+	walletBalanceRepo     *ledgerrepository.BalanceRepository
 }
 
 // ServerConfig holds configuration for the worker server
 type ServerConfig struct {
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
-	DB            *sql.DB
-	Cache         cache.Cache
-	SolanaClient  *solana.Client
-	SolanaWallet  *solana.Wallet
-	Concurrency   int
-	Queues        map[string]int // Queue name to priority mapping
+	RedisAddr                string
+	RedisPassword            string
+	RedisDB                  int
+	DB                       *sql.DB
+	Cache                    cache.Cache
+	SolanaClient             *solana.Client
+	SolanaWallet             *solana.Wallet
+	Concurrency              int
+	Queues                   map[string]int // Queue name to priority mapping
+	ExchangeRatePrimaryAPI   string
+	ExchangeRateSecondaryAPI string
+	ExchangeRateCacheTTL     time.Duration
+	ExchangeRateTimeout      time.Duration
 }
 
 // NewServer creates a new worker server instance
@@ -109,7 +116,6 @@ func NewServer(cfg *ServerConfig) *Server {
 	payoutRepo := repository.NewPayoutRepository(cfg.DB)
 	ledgerRepo := repository.NewLedgerRepository(cfg.DB)
 	balanceRepo := repository.NewBalanceRepository(cfg.DB)
-	auditRepo := repository.NewAuditRepository(cfg.DB)
 	walletBalanceRepo := repository.NewWalletBalanceRepository(cfg.DB)
 	reconciliationRepo := repository.NewReconciliationRepository(cfg.DB)
 
@@ -119,9 +125,19 @@ func NewServer(cfg *ServerConfig) *Server {
 	merchantAdapter := legacy.NewMerchantRepositoryAdapter(merchantRepo)
 
 	// Initialize services
-	exchangeRateService := service.NewExchangeRateService(cfg.Cache)
+	exchangeRateService := service.NewExchangeRateService(
+		cfg.ExchangeRatePrimaryAPI,
+		cfg.ExchangeRateSecondaryAPI,
+		cfg.ExchangeRateCacheTTL,
+		cfg.ExchangeRateTimeout,
+		cfg.Cache,
+		logger.GetLogger().Logger,
+	)
 	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, cfg.DB)
-	notificationService := service.NewNotificationService(merchantRepo, auditRepo)
+	notificationService := service.NewNotificationService(service.NotificationServiceConfig{
+		Logger:      logger.GetLogger().Logger,
+		HTTPTimeout: 30 * time.Second,
+	})
 	paymentService := paymentservice.NewPaymentService(
 		newPaymentRepo,
 		merchantAdapter,
@@ -144,7 +160,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		exchangeRateService,
 		reconciliationRepo,
 		balanceRepo,
-		logger.NewLogger(),
+		logger.GetLogger(),
 	)
 
 	server := &Server{

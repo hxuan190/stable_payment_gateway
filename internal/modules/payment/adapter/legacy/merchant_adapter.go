@@ -3,15 +3,15 @@ package legacy
 import (
 	"github.com/shopspring/decimal"
 
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 )
 
 type MerchantRepositoryAdapter struct {
-	repo *repository.MerchantRepository
+	repo repository.Repository
 }
 
-func NewMerchantRepositoryAdapter(repo *repository.MerchantRepository) domain.MerchantRepository {
+func NewMerchantRepositoryAdapter(repo repository.Repository) domain.MerchantRepository {
 	return &MerchantRepositoryAdapter{repo: repo}
 }
 

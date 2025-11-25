@@ -8,8 +8,8 @@ import (
 
 	// Existing services
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
-	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/bsc"
-	"github.com/hxuan190/stable_payment_gateway/internal/blockchain/solana"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/bsc"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	paymentHandler "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/http"
 	paymentService "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/service"
@@ -28,6 +28,12 @@ type ModuleRegistry struct {
 	Compliance   *ComplianceModule
 	Ledger       *LedgerModule
 	Notification *NotificationModule
+
+	// New modules
+	Treasury       *TreasuryModule
+	Audit          *AuditModule
+	Identity       *IdentityModule
+	Infrastructure *InfrastructureModule
 
 	// Cross-cutting concerns
 	eventBus events.EventBus
@@ -71,6 +77,26 @@ type LedgerModule struct {
 // NotificationModule encapsulates notification delivery
 type NotificationModule struct {
 	Service *service.NotificationService
+}
+
+// TreasuryModule encapsulates treasury operations
+type TreasuryModule struct {
+	// Will be populated when treasury service is created
+}
+
+// AuditModule encapsulates audit logging
+type AuditModule struct {
+	// Will be populated when audit service is created
+}
+
+// IdentityModule encapsulates user identity and KYC
+type IdentityModule struct {
+	// Will be populated when identity service is created
+}
+
+// InfrastructureModule encapsulates shared infrastructure concerns
+type InfrastructureModule struct {
+	// Will be populated with shared repositories
 }
 
 // RegistryConfig holds configuration for module registry

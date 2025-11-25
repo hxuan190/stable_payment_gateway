@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
 	"github.com/shopspring/decimal"
 )
 
@@ -33,15 +33,15 @@ const (
 	AccountPlatformBank = "platform_bank" // Platform's bank account
 
 	// Liability accounts (credit increases, debit decreases)
-	AccountMerchantPendingPrefix  = "merchant_pending:"  // Prefix for merchant pending balances
+	AccountMerchantPendingPrefix   = "merchant_pending:"   // Prefix for merchant pending balances
 	AccountMerchantAvailablePrefix = "merchant_available:" // Prefix for merchant available balances
-	AccountMerchantReservedPrefix = "merchant_reserved:" // Prefix for merchant reserved balances
-	AccountPayoutLiability        = "payout_liability"   // Pending payouts owed to merchants
+	AccountMerchantReservedPrefix  = "merchant_reserved:"  // Prefix for merchant reserved balances
+	AccountPayoutLiability         = "payout_liability"    // Pending payouts owed to merchants
 
 	// Revenue accounts (credit increases, debit decreases)
-	AccountFeeRevenue    = "fee_revenue"    // Transaction and payout fees
-	AccountOTCSpread     = "otc_spread"     // Revenue from OTC exchange rate spread
-	AccountOtherRevenue  = "other_revenue"  // Other revenue sources
+	AccountFeeRevenue   = "fee_revenue"   // Transaction and payout fees
+	AccountOTCSpread    = "otc_spread"    // Revenue from OTC exchange rate spread
+	AccountOtherRevenue = "other_revenue" // Other revenue sources
 
 	// Expense accounts (debit increases, credit decreases)
 	AccountOTCExpense    = "otc_expense"    // Costs paid to OTC partner
@@ -73,8 +73,9 @@ func NewLedgerService(
 // This creates a ledger entry moving crypto to our pool and crediting merchant's pending balance
 //
 // Accounting entry:
-//   DEBIT:  crypto_pool (+X USDT)
-//   CREDIT: merchant_pending_balance (+Y VND equivalent)
+//
+//	DEBIT:  crypto_pool (+X USDT)
+//	CREDIT: merchant_pending_balance (+Y VND equivalent)
 func (s *LedgerService) RecordPaymentReceived(
 	paymentID, merchantID string,
 	amountCrypto decimal.Decimal,
@@ -156,9 +157,10 @@ func (s *LedgerService) RecordPaymentReceived(
 // This moves balance from pending to available (after deducting platform fee)
 //
 // Accounting entry:
-//   DEBIT:  merchant_pending_balance (-Y VND)
-//   CREDIT: merchant_available_balance (+Y * 0.99 VND)
-//   CREDIT: fee_revenue (+Y * 0.01 VND)
+//
+//	DEBIT:  merchant_pending_balance (-Y VND)
+//	CREDIT: merchant_available_balance (+Y * 0.99 VND)
+//	CREDIT: fee_revenue (+Y * 0.01 VND)
 func (s *LedgerService) RecordPaymentConfirmed(
 	paymentID, merchantID string,
 	amountVND, feeVND decimal.Decimal,
@@ -252,8 +254,9 @@ func (s *LedgerService) RecordPaymentConfirmed(
 // This reserves the requested amount from their available balance
 //
 // Accounting entry:
-//   DEBIT:  merchant_available_balance (-Z VND)
-//   CREDIT: merchant_reserved_balance (+Z VND)
+//
+//	DEBIT:  merchant_available_balance (-Z VND)
+//	CREDIT: merchant_reserved_balance (+Z VND)
 func (s *LedgerService) RecordPayoutRequested(
 	payoutID, merchantID string,
 	amount decimal.Decimal,
@@ -287,9 +290,10 @@ func (s *LedgerService) RecordPayoutRequested(
 // This deducts from available balance and records the payout
 //
 // Accounting entry:
-//   DEBIT:  merchant_available_balance (-(amount + fee) VND)
-//   CREDIT: vnd_pool (+amount VND)
-//   CREDIT: fee_revenue (+fee VND)
+//
+//	DEBIT:  merchant_available_balance (-(amount + fee) VND)
+//	CREDIT: vnd_pool (+amount VND)
+//	CREDIT: fee_revenue (+fee VND)
 func (s *LedgerService) RecordPayoutCompleted(
 	payoutID, merchantID string,
 	amount, feeVND decimal.Decimal,
@@ -518,11 +522,13 @@ func (s *LedgerService) RecordPayoutFailed(
 // This decreases crypto pool and increases VND pool
 //
 // Accounting entry:
-//   DEBIT:  vnd_pool (+Y VND received)
-//   CREDIT: crypto_pool (-X USDT sent)
+//
+//	DEBIT:  vnd_pool (+Y VND received)
+//	CREDIT: crypto_pool (-X USDT sent)
 //
 // If there's a spread (difference between market rate and OTC rate):
-//   DEBIT/CREDIT: otc_spread (difference)
+//
+//	DEBIT/CREDIT: otc_spread (difference)
 func (s *LedgerService) RecordOTCConversion(
 	referenceID string,
 	cryptoAmount decimal.Decimal,

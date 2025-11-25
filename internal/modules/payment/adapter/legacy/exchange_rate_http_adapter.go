@@ -6,14 +6,14 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
+	infrastructureservice "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/service"
 )
 
 type ExchangeRateHTTPAdapter struct {
-	svc *service.ExchangeRateService
+	svc *infrastructureservice.ExchangeRateService
 }
 
-func NewExchangeRateHTTPAdapter(svc *service.ExchangeRateService) *ExchangeRateHTTPAdapter {
+func NewExchangeRateHTTPAdapter(svc *infrastructureservice.ExchangeRateService) *ExchangeRateHTTPAdapter {
 	return &ExchangeRateHTTPAdapter{svc: svc}
 }
 

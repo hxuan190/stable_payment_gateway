@@ -8,6 +8,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	notificationservice "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/shopspring/decimal"
 )
@@ -26,13 +27,13 @@ func (s *Server) handleWebhookDelivery(ctx context.Context, task *asynq.Task) er
 	})
 
 	// Get merchant details
-	merchant, err := s.merchantRepo.GetByID(ctx, payload.MerchantID)
+	merchant, err := s.merchantRepo.GetByID(payload.MerchantID)
 	if err != nil {
 		return fmt.Errorf("failed to get merchant: %w", err)
 	}
 
 	// Check if merchant has webhook URL configured
-	if merchant.WebhookURL == "" {
+	if merchant.WebhookURL.String == "" {
 		logger.Warn("Merchant has no webhook URL configured", logger.Fields{
 			"merchant_id": payload.MerchantID,
 		})
@@ -40,7 +41,13 @@ func (s *Server) handleWebhookDelivery(ctx context.Context, task *asynq.Task) er
 	}
 
 	// Send webhook using notification service
-	err = s.notificationSvc.SendWebhook(ctx, merchant, payload.Event, payload.Payload)
+	err = s.notificationSvc.SendWebhook(
+		ctx,
+		merchant.WebhookURL.String,
+		merchant.WebhookSecret.String,
+		notificationservice.WebhookEvent(payload.Event),
+		payload.Payload,
+	)
 	if err != nil {
 		logger.Error("Webhook delivery failed", err, logger.Fields{
 			"merchant_id": payload.MerchantID,
@@ -160,19 +167,19 @@ func (s *Server) handleBalanceCheck(ctx context.Context, task *asynq.Task) error
 
 	// Save balance to database
 	walletBalance := &model.WalletBalanceSnapshot{
-		WalletAddress: walletAddress,
-		Chain:         model.ChainSolana,
-		Network:       model.NetworkDevnet, // TODO: Get from config
-		NativeBalance: decimal.Zero,
-		NativeCurrency: "SOL",
-		USDTBalance:   usdtBalance,
-		USDCBalance:   usdcBalance,
-		TotalUSDValue: totalBalance,
-		MinThresholdUSD: decimal.NewFromFloat(1000),
-		MaxThresholdUSD: decimal.NewFromFloat(10000),
+		WalletAddress:       walletAddress,
+		Chain:               model.ChainSolana,
+		Network:             model.NetworkDevnet, // TODO: Get from config
+		NativeBalance:       decimal.Zero,
+		NativeCurrency:      "SOL",
+		USDTBalance:         usdtBalance,
+		USDCBalance:         usdcBalance,
+		TotalUSDValue:       totalBalance,
+		MinThresholdUSD:     decimal.NewFromFloat(1000),
+		MaxThresholdUSD:     decimal.NewFromFloat(10000),
 		IsBelowMinThreshold: totalBalance.LessThan(decimal.NewFromFloat(1000)),
 		IsAboveMaxThreshold: totalBalance.GreaterThan(decimal.NewFromFloat(10000)),
-		SnapshotAt:    time.Now(),
+		SnapshotAt:          time.Now(),
 	}
 
 	err = s.walletBalanceRepo.Create(ctx, walletBalance)
@@ -271,7 +278,7 @@ func (s *Server) handleDailySettlementReport(ctx context.Context, task *asynq.Ta
 	var walletBalance decimal.Decimal
 	if s.solanaWallet != nil {
 		walletAddress := s.solanaWallet.GetAddress()
-		latestBalance, err := s.walletBalanceRepo.GetLatest(ctx, walletAddress)
+		latestBalance, err := s.walletBalanceRepo.GetLatest(ctx, model.ChainSolana, walletAddress)
 		if err != nil {
 			logger.Warn("Failed to get latest wallet balance", logger.Fields{
 				"error": err.Error(),
@@ -347,17 +354,21 @@ func (s *Server) handleDailyReconciliation(ctx context.Context, task *asynq.Task
 		})
 	} else {
 		logger.Info("Daily reconciliation completed successfully", logger.Fields{
-			"status":               reconLog.Status,
-			"total_assets_vnd":     reconLog.TotalAssetsVND.String(),
+			"status":                reconLog.Status,
+			"total_assets_vnd":      reconLog.TotalAssetsVND.String(),
 			"total_liabilities_vnd": reconLog.TotalLiabilitiesVND.String(),
-			"difference_vnd":       reconLog.DifferenceVND.String(),
-			"alert_triggered":      reconLog.AlertTriggered,
-			"duration_seconds":     duration.Seconds(),
+			"difference_vnd":        reconLog.DifferenceVND.String(),
+			"alert_triggered":       reconLog.AlertTriggered,
+			"duration_seconds":      duration.Seconds(),
 		})
 
 		// Log asset breakdown for transparency
 		if reconLog.AssetBreakdown != nil {
-			logger.Info("Asset breakdown", reconLog.AssetBreakdown)
+			breakdown := logger.Fields{}
+			for k, v := range reconLog.AssetBreakdown {
+				breakdown[k] = v
+			}
+			logger.Info("Asset breakdown", breakdown)
 		}
 	}
 

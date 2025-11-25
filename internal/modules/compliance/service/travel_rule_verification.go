@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -52,22 +51,22 @@ type TravelRuleVerificationService interface {
 
 // SanctionsCheckResult represents the result of Layer 2 sanctions screening
 type SanctionsCheckResult struct {
-	Status              string                 `json:"status"` // clear, pep, sanctions, watchlist, adverse_media
-	WalletSanctioned    bool                   `json:"wallet_sanctioned"`
-	NameSanctioned      bool                   `json:"name_sanctioned"`
-	ChainalysisScore    decimal.Decimal        `json:"chainalysis_score"` // 0-100
-	HitDetails          map[string]interface{} `json:"hit_details"`
-	RequiresManualReview bool                  `json:"requires_manual_review"`
+	Status               string                 `json:"status"` // clear, pep, sanctions, watchlist, adverse_media
+	WalletSanctioned     bool                   `json:"wallet_sanctioned"`
+	NameSanctioned       bool                   `json:"name_sanctioned"`
+	ChainalysisScore     decimal.Decimal        `json:"chainalysis_score"` // 0-100
+	HitDetails           map[string]interface{} `json:"hit_details"`
+	RequiresManualReview bool                   `json:"requires_manual_review"`
 }
 
 // PassiveSignalsResult represents the result of Layer 3 anomaly detection
 type PassiveSignalsResult struct {
-	IPCountry        string                   `json:"ip_country"`
-	GeoMismatch      bool                     `json:"geo_mismatch"`
-	AnomalyScore     decimal.Decimal          `json:"anomaly_score"` // 0-100
-	AnomalyFlags     []string                 `json:"anomaly_flags"`
-	DeviceTrusted    bool                     `json:"device_trusted"`
-	RiskLevel        string                   `json:"risk_level"` // low, medium, high
+	IPCountry     string          `json:"ip_country"`
+	GeoMismatch   bool            `json:"geo_mismatch"`
+	AnomalyScore  decimal.Decimal `json:"anomaly_score"` // 0-100
+	AnomalyFlags  []string        `json:"anomaly_flags"`
+	DeviceTrusted bool            `json:"device_trusted"`
+	RiskLevel     string          `json:"risk_level"` // low, medium, high
 }
 
 // EKYCResult represents the result of Layer 4 eKYC verification
@@ -83,14 +82,14 @@ type EKYCResult struct {
 
 // VerificationSummary represents the summary of all 4 layers
 type VerificationSummary struct {
-	Layer1Signature    bool                  `json:"layer1_signature_verified"`
-	Layer2Sanctions    *SanctionsCheckResult `json:"layer2_sanctions"`
+	Layer1Signature      bool                  `json:"layer1_signature_verified"`
+	Layer2Sanctions      *SanctionsCheckResult `json:"layer2_sanctions"`
 	Layer3PassiveSignals *PassiveSignalsResult `json:"layer3_passive_signals"`
-	Layer4EKYC         *EKYCResult           `json:"layer4_ekyc,omitempty"`
-	VerificationTier   int                   `json:"verification_tier"`
-	OverallRisk        string                `json:"overall_risk"` // low, medium, high, critical
-	Approved           bool                  `json:"approved"`
-	RequiresReview     bool                  `json:"requires_review"`
+	Layer4EKYC           *EKYCResult           `json:"layer4_ekyc,omitempty"`
+	VerificationTier     int                   `json:"verification_tier"`
+	OverallRisk          string                `json:"overall_risk"` // low, medium, high, critical
+	Approved             bool                  `json:"approved"`
+	RequiresReview       bool                  `json:"requires_review"`
 }
 
 type travelRuleVerificationServiceImpl struct {
@@ -282,8 +281,8 @@ func (s *travelRuleVerificationServiceImpl) checkPEP(name string, country string
 // AnalyzePassiveSignals performs passive signal analysis (Layer 3)
 func (s *travelRuleVerificationServiceImpl) AnalyzePassiveSignals(ctx context.Context, ipAddress string, userAgent string, deviceFingerprint string, declaredCountry string) (*PassiveSignalsResult, error) {
 	s.logger.Info("Analyzing passive signals", map[string]interface{}{
-		"ip_address":        ipAddress,
-		"declared_country":  declaredCountry,
+		"ip_address":         ipAddress,
+		"declared_country":   declaredCountry,
 		"device_fingerprint": deviceFingerprint,
 	})
 
@@ -507,12 +506,12 @@ func (s *travelRuleVerificationServiceImpl) PerformFullVerification(ctx context.
 	if travelRuleData.PayerAddress.Valid {
 		// Placeholder: Extract passive signals from stored data
 		summary.Layer3PassiveSignals = &PassiveSignalsResult{
-			IPCountry:    travelRuleData.PayerCountry,
-			GeoMismatch:  false,
-			AnomalyScore: decimal.NewFromInt(10),
-			AnomalyFlags: []string{},
+			IPCountry:     travelRuleData.PayerCountry,
+			GeoMismatch:   false,
+			AnomalyScore:  decimal.NewFromInt(10),
+			AnomalyFlags:  []string{},
 			DeviceTrusted: true,
-			RiskLevel:    "low",
+			RiskLevel:     "low",
 		}
 		summary.VerificationTier = 3
 	}
@@ -538,7 +537,7 @@ func (s *travelRuleVerificationServiceImpl) PerformFullVerification(ctx context.
 	}
 
 	s.logger.Info("Verification completed", map[string]interface{}{
-		"travel_rule_id":   travelRuleID,
+		"travel_rule_id":    travelRuleID,
 		"verification_tier": summary.VerificationTier,
 		"approved":          summary.Approved,
 		"overall_risk":      summary.OverallRisk,

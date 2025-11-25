@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -107,14 +107,18 @@ func main() {
 	// Create worker server
 	logger.Info("Setting up worker server...")
 	workerServer := worker.NewServer(&worker.ServerConfig{
-		RedisAddr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
-		RedisPassword: cfg.Redis.Password,
-		RedisDB:       cfg.Redis.DB,
-		DB:            db.DB,
-		Cache:         redisClient,
-		SolanaClient:  solanaClient,
-		SolanaWallet:  solanaWallet,
-		Concurrency:   10, // Process up to 10 jobs concurrently
+		RedisAddr:                fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
+		RedisPassword:            cfg.Redis.Password,
+		RedisDB:                  cfg.Redis.DB,
+		DB:                       db.DB,
+		Cache:                    redisClient,
+		SolanaClient:             solanaClient,
+		SolanaWallet:             solanaWallet,
+		Concurrency:              10, // Process up to 10 jobs concurrently
+		ExchangeRatePrimaryAPI:   cfg.ExchangeRate.PrimaryAPI,
+		ExchangeRateSecondaryAPI: cfg.ExchangeRate.SecondaryAPI,
+		ExchangeRateCacheTTL:     time.Duration(cfg.ExchangeRate.CacheTTL) * time.Second,
+		ExchangeRateTimeout:      time.Duration(cfg.ExchangeRate.Timeout) * time.Second,
 		Queues: map[string]int{
 			"webhooks":       5, // Highest priority
 			"webhooks_retry": 3,
