@@ -52,21 +52,10 @@ func main() {
 		"solana_rpc":  cfg.Solana.RPCURL,
 	}).Info("Configuration loaded")
 
-	db, err := database.InitGORM(cfg.GetDatabaseDSN(), cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns)
+	db, err := database.InitGORM(&cfg.Database, cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns)
 	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to connect to database")
 	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		appLogger.WithError(err).Fatal("Failed to get database instance")
-	}
-	defer sqlDB.Close()
-
-	if err := sqlDB.Ping(); err != nil {
-		appLogger.WithError(err).Fatal("Failed to ping database")
-	}
-
 	appLogger.Info("Database connection established")
 
 	balanceRepo := infrastructurerepository.NewWalletBalanceRepository(db)
