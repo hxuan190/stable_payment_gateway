@@ -1,11 +1,10 @@
 package payout
 
 import (
-	"database/sql"
-
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payout/service"
@@ -20,7 +19,7 @@ type Module struct {
 }
 
 type Config struct {
-	DB       *sql.DB
+	DB       *gorm.DB
 	Cache    *redis.Client
 	EventBus events.EventBus
 	Logger   *logrus.Logger

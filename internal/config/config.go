@@ -12,24 +12,24 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	Environment  string
-	Version      string
-	API          APIConfig
-	Admin        AdminConfig
-	Database     DatabaseConfig
-	Redis        RedisConfig
-	Solana       SolanaConfig
-	BSC          BSCConfig
-	TRON         TRONConfig
-	ExchangeRate ExchangeRateConfig
-	Security     SecurityConfig
-	Email        EmailConfig
-	Storage      StorageConfig
-	AWS          AWSConfig
+	Environment   string
+	Version       string
+	API           APIConfig
+	Admin         AdminConfig
+	Database      DatabaseConfig
+	Redis         RedisConfig
+	Solana        SolanaConfig
+	BSC           BSCConfig
+	TRON          TRONConfig
+	ExchangeRate  ExchangeRateConfig
+	Security      SecurityConfig
+	Email         EmailConfig
+	Storage       StorageConfig
+	AWS           AWSConfig
 	TRM           TRMConfig
-	TRMLabs       TRMConfig  // Alias for TRM
+	TRMLabs       TRMConfig // Alias for TRM
 	JWT           JWTConfig
-	OpsTeamEmails []string   // Email addresses for ops team alerts
+	OpsTeamEmails []string // Email addresses for ops team alerts
 }
 
 // APIConfig contains API server configuration
@@ -72,14 +72,14 @@ type RedisConfig struct {
 
 // SolanaConfig contains Solana blockchain configuration
 type SolanaConfig struct {
-	RPCURL             string
-	WSURL              string // WebSocket URL for real-time transaction monitoring
-	WalletPrivateKey   string
-	WalletAddress      string
-	Network            string // mainnet, testnet, devnet
-	ConfirmationLevel  string // finalized, confirmed
-	USDTMint           string
-	USDCMint           string
+	RPCURL            string
+	WSURL             string // WebSocket URL for real-time transaction monitoring
+	WalletPrivateKey  string
+	WalletAddress     string
+	Network           string // mainnet, testnet, devnet
+	ConfirmationLevel string // finalized, confirmed
+	USDTMint          string
+	USDCMint          string
 }
 
 // BSCConfig contains Binance Smart Chain configuration
@@ -95,16 +95,16 @@ type BSCConfig struct {
 
 // TRONConfig contains TRON blockchain configuration
 type TRONConfig struct {
-	RPCURL              string
-	WalletPrivateKey    string
-	WalletAddress       string
-	ColdWalletAddress   string
-	Network             string // mainnet, testnet (shasta, nile)
-	USDTContract        string // TRC20 USDT contract
-	USDCContract        string // TRC20 USDC contract
-	MinConfirmations    int64  // Minimum confirmations (default: 19 for solid block)
-	SweepThresholdUSD   int64  // Hot wallet sweep threshold in USD (default: 10000)
-	SweepIntervalHours  int    // Auto-sweep interval in hours (default: 6)
+	RPCURL             string
+	WalletPrivateKey   string
+	WalletAddress      string
+	ColdWalletAddress  string
+	Network            string // mainnet, testnet (shasta, nile)
+	USDTContract       string // TRC20 USDT contract
+	USDCContract       string // TRC20 USDC contract
+	MinConfirmations   int64  // Minimum confirmations (default: 19 for solid block)
+	SweepThresholdUSD  int64  // Hot wallet sweep threshold in USD (default: 10000)
+	SweepIntervalHours int    // Auto-sweep interval in hours (default: 6)
 }
 
 // ExchangeRateConfig contains exchange rate API configuration
@@ -117,25 +117,25 @@ type ExchangeRateConfig struct {
 
 // SecurityConfig contains security-related configuration
 type SecurityConfig struct {
-	JWTSecret           string
-	JWTExpirationHours  int
-	APIKeyLength        int
-	WebhookSigningKey   string
-	PasswordMinLength   int
-	MaxLoginAttempts    int
-	RateLimitPerMinute  int
+	JWTSecret          string
+	JWTExpirationHours int
+	APIKeyLength       int
+	WebhookSigningKey  string
+	PasswordMinLength  int
+	MaxLoginAttempts   int
+	RateLimitPerMinute int
 }
 
 // EmailConfig contains email service configuration
 type EmailConfig struct {
-	Provider      string // sendgrid, ses, smtp
-	APIKey        string
-	FromEmail     string
-	FromName      string
-	SMTPHost      string
-	SMTPPort      int
-	SMTPUsername  string
-	SMTPPassword  string
+	Provider     string // sendgrid, ses, smtp
+	APIKey       string
+	FromEmail    string
+	FromName     string
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
 }
 
 // StorageConfig contains file storage configuration

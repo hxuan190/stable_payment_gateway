@@ -1,10 +1,9 @@
 package audit
 
 import (
-	"database/sql"
-
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/audit/repository"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 type Module struct {
@@ -13,7 +12,7 @@ type Module struct {
 }
 
 type Config struct {
-	DB     *sql.DB
+	DB     *gorm.DB
 	Logger *logrus.Logger
 }
 

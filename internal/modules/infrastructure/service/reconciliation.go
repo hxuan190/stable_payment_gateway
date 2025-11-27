@@ -12,6 +12,7 @@ import (
 	ledgerService "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // ReconciliationStatus represents the status of a reconciliation check
@@ -30,7 +31,7 @@ const ReconciliationToleranceVND = 1000
 
 // ReconciliationService handles daily solvency checks and audits
 type ReconciliationService struct {
-	db                  *sql.DB
+	db                  *gorm.DB
 	ledgerService       *ledgerService.LedgerService
 	exchangeRateService *ExchangeRateService
 	reconciliationRepo  *infrastructureRepository.ReconciliationRepository
@@ -40,7 +41,7 @@ type ReconciliationService struct {
 
 // NewReconciliationService creates a new reconciliation service
 func NewReconciliationService(
-	db *sql.DB,
+	db *gorm.DB,
 	ledgerService *ledgerService.LedgerService,
 	exchangeRateService *ExchangeRateService,
 	reconciliationRepo *infrastructureRepository.ReconciliationRepository,
@@ -192,7 +193,7 @@ func (s *ReconciliationService) calculateTotalLiabilities(ctx context.Context) (
 	`
 
 	var totalLiabilities decimal.Decimal
-	err := s.db.QueryRowContext(ctx, query).Scan(&totalLiabilities)
+	err := s.db.Raw(query).Scan(&totalLiabilities).Error
 	if err != nil {
 		return decimal.Zero, fmt.Errorf("failed to query merchant balances: %w", err)
 	}

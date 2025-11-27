@@ -1,12 +1,11 @@
 package ledger
 
 import (
-	"database/sql"
-
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/shared/events"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 type Module struct {
@@ -17,7 +16,7 @@ type Module struct {
 }
 
 type Config struct {
-	DB       *sql.DB
+	DB       *gorm.DB
 	EventBus events.EventBus
 	Logger   *logrus.Logger
 }

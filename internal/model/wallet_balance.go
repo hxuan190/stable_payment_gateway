@@ -71,18 +71,22 @@ func (w *WalletBalanceSnapshot) GetAlertMessage() string {
 // GetAlertDetails returns detailed alert information
 func (w *WalletBalanceSnapshot) GetAlertDetails() map[string]interface{} {
 	return map[string]interface{}{
-		"chain":            w.Chain,
-		"network":          w.Network,
-		"wallet_address":   w.WalletAddress,
-		"native_balance":   w.NativeBalance.String(),
-		"native_currency":  w.NativeCurrency,
-		"usdt_balance":     w.USDTBalance.String(),
-		"usdc_balance":     w.USDCBalance.String(),
-		"total_usd_value":  w.TotalUSDValue.String(),
-		"min_threshold":    w.MinThresholdUSD.String(),
-		"max_threshold":    w.MaxThresholdUSD.String(),
-		"below_threshold":  w.IsBelowMinThreshold,
-		"above_threshold":  w.IsAboveMaxThreshold,
-		"snapshot_time":    w.SnapshotAt.Format(time.RFC3339),
+		"chain":           w.Chain,
+		"network":         w.Network,
+		"wallet_address":  w.WalletAddress,
+		"native_balance":  w.NativeBalance.String(),
+		"native_currency": w.NativeCurrency,
+		"usdt_balance":    w.USDTBalance.String(),
+		"usdc_balance":    w.USDCBalance.String(),
+		"total_usd_value": w.TotalUSDValue.String(),
+		"min_threshold":   w.MinThresholdUSD.String(),
+		"max_threshold":   w.MaxThresholdUSD.String(),
+		"below_threshold": w.IsBelowMinThreshold,
+		"above_threshold": w.IsAboveMaxThreshold,
+		"snapshot_time":   w.SnapshotAt.Format(time.RFC3339),
 	}
+}
+
+func (WalletBalanceSnapshot) TableName() string {
+	return "wallet_balance_snapshots"
 }

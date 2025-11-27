@@ -1,11 +1,10 @@
 package merchant
 
 import (
-	"database/sql"
-
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/service"
@@ -20,16 +19,16 @@ type Module struct {
 }
 
 type Config struct {
-	DB       *sql.DB
+	GormDB   *gorm.DB
 	Cache    *redis.Client
 	EventBus events.EventBus
 	Logger   *logrus.Logger
 }
 
 func NewModule(cfg Config) (*Module, error) {
-	repo := repository.NewMerchantRepository(cfg.DB)
+	repo := repository.NewMerchantRepository(cfg.GormDB)
 
-	svc := service.NewMerchantService(*repo, cfg.DB)
+	svc := service.NewMerchantService(*repo, cfg.GormDB)
 
 	cfg.Logger.Info("Merchant module initialized")
 

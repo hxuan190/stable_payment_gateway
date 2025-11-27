@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"os/signal"
@@ -24,11 +23,12 @@ import (
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
 	paymentport "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/port"
 	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
-	_ "github.com/lib/pq"
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -52,21 +52,23 @@ func main() {
 		"solana_rpc":  cfg.Solana.RPCURL,
 	}).Info("Configuration loaded")
 
-	// Initialize database connection
-	db, err := sql.Open("postgres", cfg.GetDatabaseDSN())
+	db, err := database.InitGORM(cfg.GetDatabaseDSN(), cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns)
 	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to connect to database")
 	}
-	defer db.Close()
 
-	// Test database connection
-	if err := db.Ping(); err != nil {
+	sqlDB, err := db.DB()
+	if err != nil {
+		appLogger.WithError(err).Fatal("Failed to get database instance")
+	}
+	defer sqlDB.Close()
+
+	if err := sqlDB.Ping(); err != nil {
 		appLogger.WithError(err).Fatal("Failed to ping database")
 	}
 
 	appLogger.Info("Database connection established")
 
-	// Initialize repositories
 	balanceRepo := infrastructurerepository.NewWalletBalanceRepository(db)
 	merchantRepo := merchantrepository.NewMerchantRepository(db)
 	auditRepo := auditrepository.NewAuditRepository(db)
@@ -303,16 +305,14 @@ func initializeAMLService(
 	)
 }
 
-// initializePaymentService creates a payment service instance
 func initializePaymentService(
 	cfg *config.Config,
-	db *sql.DB,
+	db *gorm.DB,
 	merchantRepo *merchantrepository.MerchantRepository,
 	solanaWallet *solana.Wallet,
 	appLogger *logrus.Logger,
 ) *paymentservice.PaymentService {
 	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(db)
-	// Skip merchant adapter - type mismatch issue
 	return paymentservice.NewPaymentService(
 		newPaymentRepo,
 		nil,

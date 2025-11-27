@@ -9,6 +9,7 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 var (
@@ -53,14 +54,14 @@ const (
 type LedgerService struct {
 	ledgerRepo  *repository.LedgerRepository
 	balanceRepo *repository.BalanceRepository
-	db          *sql.DB
+	db          *gorm.DB
 }
 
 // NewLedgerService creates a new ledger service
 func NewLedgerService(
 	ledgerRepo *repository.LedgerRepository,
 	balanceRepo *repository.BalanceRepository,
-	db *sql.DB,
+	db *gorm.DB,
 ) *LedgerService {
 	return &LedgerService{
 		ledgerRepo:  ledgerRepo,
@@ -129,10 +130,7 @@ func (s *LedgerService) RecordPaymentReceived(
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Create ledger entries
@@ -226,10 +224,7 @@ func (s *LedgerService) RecordPaymentConfirmed(
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Create ledger entries
@@ -267,10 +262,7 @@ func (s *LedgerService) RecordPayoutRequested(
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Reserve balance (this will check if sufficient balance exists)
@@ -356,10 +348,7 @@ func (s *LedgerService) RecordPayoutCompleted(
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Create ledger entries
@@ -392,10 +381,7 @@ func (s *LedgerService) RecordPayoutCancelled(
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Release reserved balance

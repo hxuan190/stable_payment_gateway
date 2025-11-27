@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
 	"github.com/shopspring/decimal"
@@ -45,13 +47,13 @@ const (
 // PayoutService handles business logic for merchant payouts (withdrawals)
 type PayoutService struct {
 	payoutRepo repository.PayoutRepository
-	db         *sql.DB
+	db         *gorm.DB
 }
 
 // NewPayoutService creates a new payout service instance
 func NewPayoutService(
 	payoutRepo repository.PayoutRepository,
-	db *sql.DB,
+	db *gorm.DB,
 ) *PayoutService {
 	return &PayoutService{
 		payoutRepo: payoutRepo,
@@ -123,10 +125,7 @@ func (s *PayoutService) RequestPayout(input RequestPayoutInput) (*model.Payout, 
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Verify merchant exists and is approved
@@ -203,12 +202,8 @@ func (s *PayoutService) ListPayoutsByMerchant(merchantID string, limit, offset i
 
 // ListPendingPayouts retrieves all payouts awaiting approval
 func (s *PayoutService) ListPendingPayouts() ([]*model.Payout, error) {
-	payouts, err := s.payoutRepo.ListPending()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list pending payouts: %w", err)
-	}
-
-	return payouts, nil
+	payouts, err := s.payoutRepo.ListByStatus(model.PayoutStatusRequested, 100, 0)
+	return payouts, err
 }
 
 // ApprovePayout approves a payout request (admin only)
@@ -255,10 +250,7 @@ func (s *PayoutService) RejectPayout(payoutID, reason string) error {
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Get payout
@@ -309,10 +301,7 @@ func (s *PayoutService) CompletePayout(payoutID, bankReferenceNumber, processedB
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Get payout
@@ -364,10 +353,7 @@ func (s *PayoutService) FailPayout(payoutID, failureReason, processedBy string) 
 	}
 
 	// Start database transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.db.Begin()
 	defer tx.Rollback()
 
 	// Get payout

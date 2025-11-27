@@ -3,13 +3,13 @@ package api
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
@@ -84,7 +84,7 @@ type AdminServer struct {
 	config       *config.Config
 	router       *gin.Engine
 	httpServer   *http.Server
-	db           *sql.DB
+	gormDB       *gorm.DB
 	cache        cache.Cache
 	jwtManager   *jwtpkg.Manager
 	solanaClient *solana.Client
@@ -94,7 +94,7 @@ type AdminServer struct {
 // AdminServerConfig holds dependencies for the admin server
 type AdminServerConfig struct {
 	Config       *config.Config
-	DB           *sql.DB
+	GormDB       *gorm.DB
 	Cache        cache.Cache
 	SolanaClient *solana.Client
 	SolanaWallet *solana.Wallet
@@ -114,7 +114,7 @@ func NewAdminServer(cfg *AdminServerConfig) *AdminServer {
 
 	server := &AdminServer{
 		config:       cfg.Config,
-		db:           cfg.DB,
+		gormDB:       cfg.GormDB,
 		cache:        cfg.Cache,
 		jwtManager:   jwtManager,
 		solanaClient: cfg.SolanaClient,
@@ -175,17 +175,17 @@ func (s *AdminServer) corsMiddleware() gin.HandlerFunc {
 // setupRoutes configures all admin API routes
 func (s *AdminServer) setupRoutes(router *gin.Engine) {
 	// Initialize repositories
-	merchantRepo := merchantrepository.NewMerchantRepository(s.db)
-	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(s.db)
+	merchantRepo := merchantrepository.NewMerchantRepository(s.gormDB)
+	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(s.gormDB)
 	paymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(newPaymentRepo)
-	payoutRepo := payoutrepository.NewPayoutRepository(s.db)
-	balanceRepo := ledgerrepository.NewBalanceRepository(s.db)
-	auditRepo := auditrepository.NewAuditRepository(s.db)
+	payoutRepo := payoutrepository.NewPayoutRepository(s.gormDB)
+	balanceRepo := ledgerrepository.NewBalanceRepository(s.gormDB)
+	auditRepo := auditrepository.NewAuditRepository(s.gormDB)
 
 	// Travel Rule repo requires encryption cipher - skip for now
 	var travelRuleRepo compliancerepository.TravelRuleRepository
 
-	kycDocumentRepo := infrastructurerepository.NewKYCDocumentRepository(s.db, logger.GetLogger())
+	kycDocumentRepo := infrastructurerepository.NewKYCDocumentRepository(s.gormDB)
 
 	// AML Rule repo requires GORM - skip for now
 	var amlRuleRepo *compliancerepository.AMLRuleRepository
@@ -221,7 +221,7 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 	}
 
 	// Initialize services
-	merchantService := merchantservice.NewMerchantService(*merchantRepo, s.db)
+	merchantService := merchantservice.NewMerchantService(*merchantRepo, s.gormDB)
 
 	// Initialize compliance services
 	ruleEngine := complianceservice.NewRuleEngine(amlRuleRepo, newPaymentRepo, logger.GetLogger())
@@ -252,12 +252,12 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 
 	payoutService := payoutservice.NewPayoutService(
 		*payoutRepo,
-		s.db,
+		s.gormDB,
 	)
 
 	// Health check handler (no auth required)
 	healthHandler := handler.NewHealthHandler(
-		s.db,
+		s.gormDB,
 		s.cache,
 		s.solanaClient,
 		s.solanaWallet,

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
@@ -46,7 +46,7 @@ type Server struct {
 	config       *config.Config
 	router       *gin.Engine
 	httpServer   *http.Server
-	db           *sql.DB
+	db           *gorm.DB
 	cache        cache.Cache
 	solanaClient *solana.Client
 	solanaWallet *solana.Wallet
@@ -55,7 +55,7 @@ type Server struct {
 // ServerConfig holds dependencies for the server
 type ServerConfig struct {
 	Config       *config.Config
-	DB           *sql.DB
+	DB           *gorm.DB
 	Cache        cache.Cache
 	SolanaClient *solana.Client
 	SolanaWallet *solana.Wallet
@@ -177,7 +177,7 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	// Travel Rule repo requires encryption cipher - skip for now as it's optional
 	var travelRuleRepo compliancerepository.TravelRuleRepository
 
-	kycDocumentRepo := infrastructurerepository.NewKYCDocumentRepository(s.db, logger.GetLogger())
+	kycDocumentRepo := infrastructurerepository.NewKYCDocumentRepository(s.db)
 	// AML Rule repo requires GORM - skip for now
 	var amlRuleRepo *compliancerepository.AMLRuleRepository
 	legacyPaymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(paymentrepo.NewPostgresPaymentRepository(s.db))

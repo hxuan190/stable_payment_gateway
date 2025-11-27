@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
+	"gorm.io/gorm"
 )
 
 // Common errors for merchant service
@@ -27,17 +28,17 @@ var (
 // MerchantService handles business logic for merchant management
 type MerchantService struct {
 	merchantRepo repository.MerchantRepository
-	db           *sql.DB
+	gormDB       *gorm.DB
 }
 
 // NewMerchantService creates a new merchant service instance
 func NewMerchantService(
 	merchantRepo repository.MerchantRepository,
-	db *sql.DB,
+	gormDB *gorm.DB,
 ) *MerchantService {
 	return &MerchantService{
 		merchantRepo: merchantRepo,
-		db:           db,
+		gormDB:       gormDB,
 	}
 }
 
@@ -122,10 +123,7 @@ func (s *MerchantService) RegisterMerchant(input RegisterMerchantRequest) (*mode
 	merchant.KYCSubmittedAt = sql.NullTime{Time: time.Now(), Valid: true}
 
 	// Begin transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := s.gormDB.Begin()
 	defer tx.Rollback()
 
 	// Save merchant to database

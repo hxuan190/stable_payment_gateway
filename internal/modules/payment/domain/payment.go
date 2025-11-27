@@ -29,7 +29,6 @@ const (
 	ChainEthereum Chain = "ethereum"
 )
 
-// Payment represents a payment request in the system
 type Payment struct {
 	ID         string `json:"id" db:"id"`
 	MerchantID string `json:"merchant_id" db:"merchant_id" validate:"required,uuid"`
@@ -150,4 +149,8 @@ func (p *Payment) GetCallbackURL() string {
 		return p.CallbackURL.String
 	}
 	return ""
+}
+
+func (Payment) TableName() string {
+	return "payments"
 }

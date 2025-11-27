@@ -1,11 +1,9 @@
 package infrastructure
 
 import (
-	"database/sql"
-
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
-	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 type Module struct {
@@ -22,7 +20,7 @@ type Module struct {
 }
 
 type Config struct {
-	DB     *sql.DB
+	DB     *gorm.DB
 	Logger *logrus.Logger
 }
 
@@ -36,7 +34,7 @@ func NewModule(cfg Config) (*Module, error) {
 		WalletBalanceRepo:            repository.NewWalletBalanceRepository(cfg.DB),
 		BlockchainTxRepo:             repository.NewBlockchainTxRepository(cfg.DB),
 		TransactionHashRepo:          repository.NewTransactionHashRepository(cfg.DB),
-		KYCDocumentRepo:              repository.NewKYCDocumentRepository(cfg.DB, logger.GetLogger()),
+		KYCDocumentRepo:              repository.NewKYCDocumentRepository(cfg.DB),
 		PayoutScheduleRepo:           repository.NewPayoutScheduleRepository(cfg.DB),
 		ReconciliationRepo:           repository.NewReconciliationRepository(cfg.DB),
 		logger:                       cfg.Logger,

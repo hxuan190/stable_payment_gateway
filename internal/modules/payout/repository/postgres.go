@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"gorm.io/gorm"
 )
 
 var (
@@ -20,13 +21,13 @@ var (
 
 // PayoutRepository handles database operations for payouts
 type PayoutRepository struct {
-	db *sql.DB
+	gormDB *gorm.DB
 }
 
 // NewPayoutRepository creates a new payout repository
-func NewPayoutRepository(db *sql.DB) *PayoutRepository {
+func NewPayoutRepository(gormDB *gorm.DB) *PayoutRepository {
 	return &PayoutRepository{
-		db: db,
+		gormDB: gormDB,
 	}
 }
 
@@ -36,63 +37,7 @@ func (r *PayoutRepository) Create(payout *model.Payout) error {
 		return errors.New("payout cannot be nil")
 	}
 
-	query := `
-		INSERT INTO payouts (
-			id, merchant_id,
-			amount_vnd, fee_vnd, net_amount_vnd,
-			bank_account_name, bank_account_number, bank_name, bank_branch,
-			status,
-			requested_by, approved_by, approved_at, rejection_reason,
-			processed_by, processed_at, completion_date,
-			bank_reference_number, transaction_receipt_url,
-			failure_reason, retry_count,
-			notes, metadata,
-			created_at, updated_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-			$15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
-		)
-		RETURNING id, created_at, updated_at
-	`
-
-	now := time.Now()
-	if payout.CreatedAt.IsZero() {
-		payout.CreatedAt = now
-	}
-	if payout.UpdatedAt.IsZero() {
-		payout.UpdatedAt = now
-	}
-
-	err := r.db.QueryRow(
-		query,
-		payout.ID,
-		payout.MerchantID,
-		payout.AmountVND,
-		payout.FeeVND,
-		payout.NetAmountVND,
-		payout.BankAccountName,
-		payout.BankAccountNumber,
-		payout.BankName,
-		payout.BankBranch,
-		payout.Status,
-		payout.RequestedBy,
-		payout.ApprovedBy,
-		payout.ApprovedAt,
-		payout.RejectionReason,
-		payout.ProcessedBy,
-		payout.ProcessedAt,
-		payout.CompletionDate,
-		payout.BankReferenceNumber,
-		payout.TransactionReceiptURL,
-		payout.FailureReason,
-		payout.RetryCount,
-		payout.Notes,
-		payout.Metadata,
-		payout.CreatedAt,
-		payout.UpdatedAt,
-	).Scan(&payout.ID, &payout.CreatedAt, &payout.UpdatedAt)
-
-	if err != nil {
+	if err := r.gormDB.Create(payout).Error; err != nil {
 		return fmt.Errorf("failed to create payout: %w", err)
 	}
 
@@ -105,57 +50,12 @@ func (r *PayoutRepository) GetByID(id string) (*model.Payout, error) {
 		return nil, ErrInvalidPayoutID
 	}
 
-	query := `
-		SELECT
-			id, merchant_id,
-			amount_vnd, fee_vnd, net_amount_vnd,
-			bank_account_name, bank_account_number, bank_name, bank_branch,
-			status,
-			requested_by, approved_by, approved_at, rejection_reason,
-			processed_by, processed_at, completion_date,
-			bank_reference_number, transaction_receipt_url,
-			failure_reason, retry_count,
-			notes, metadata,
-			created_at, updated_at, deleted_at
-		FROM payouts
-		WHERE id = $1 AND deleted_at IS NULL
-	`
-
 	payout := &model.Payout{}
-	err := r.db.QueryRow(query, id).Scan(
-		&payout.ID,
-		&payout.MerchantID,
-		&payout.AmountVND,
-		&payout.FeeVND,
-		&payout.NetAmountVND,
-		&payout.BankAccountName,
-		&payout.BankAccountNumber,
-		&payout.BankName,
-		&payout.BankBranch,
-		&payout.Status,
-		&payout.RequestedBy,
-		&payout.ApprovedBy,
-		&payout.ApprovedAt,
-		&payout.RejectionReason,
-		&payout.ProcessedBy,
-		&payout.ProcessedAt,
-		&payout.CompletionDate,
-		&payout.BankReferenceNumber,
-		&payout.TransactionReceiptURL,
-		&payout.FailureReason,
-		&payout.RetryCount,
-		&payout.Notes,
-		&payout.Metadata,
-		&payout.CreatedAt,
-		&payout.UpdatedAt,
-		&payout.DeletedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
+	if err := r.gormDB.Where("id = ?", id).First(payout).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPayoutNotFound
 		}
-		return nil, fmt.Errorf("failed to get payout by ID: %w", err)
+		return nil, err
 	}
 
 	return payout, nil
@@ -173,138 +73,9 @@ func (r *PayoutRepository) ListByMerchant(merchantID string, limit, offset int) 
 		offset = 0
 	}
 
-	query := `
-		SELECT
-			id, merchant_id,
-			amount_vnd, fee_vnd, net_amount_vnd,
-			bank_account_name, bank_account_number, bank_name, bank_branch,
-			status,
-			requested_by, approved_by, approved_at, rejection_reason,
-			processed_by, processed_at, completion_date,
-			bank_reference_number, transaction_receipt_url,
-			failure_reason, retry_count,
-			notes, metadata,
-			created_at, updated_at, deleted_at
-		FROM payouts
-		WHERE merchant_id = $1 AND deleted_at IS NULL
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`
-
-	rows, err := r.db.Query(query, merchantID, limit, offset)
-	if err != nil {
+	payouts := make([]*model.Payout, 0)
+	if err := r.gormDB.Where("merchant_id = ?", merchantID).Offset(offset).Limit(limit).Find(&payouts).Error; err != nil {
 		return nil, fmt.Errorf("failed to list payouts by merchant: %w", err)
-	}
-	defer rows.Close()
-
-	payouts := make([]*model.Payout, 0)
-	for rows.Next() {
-		payout := &model.Payout{}
-		err := rows.Scan(
-			&payout.ID,
-			&payout.MerchantID,
-			&payout.AmountVND,
-			&payout.FeeVND,
-			&payout.NetAmountVND,
-			&payout.BankAccountName,
-			&payout.BankAccountNumber,
-			&payout.BankName,
-			&payout.BankBranch,
-			&payout.Status,
-			&payout.RequestedBy,
-			&payout.ApprovedBy,
-			&payout.ApprovedAt,
-			&payout.RejectionReason,
-			&payout.ProcessedBy,
-			&payout.ProcessedAt,
-			&payout.CompletionDate,
-			&payout.BankReferenceNumber,
-			&payout.TransactionReceiptURL,
-			&payout.FailureReason,
-			&payout.RetryCount,
-			&payout.Notes,
-			&payout.Metadata,
-			&payout.CreatedAt,
-			&payout.UpdatedAt,
-			&payout.DeletedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan payout: %w", err)
-		}
-		payouts = append(payouts, payout)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating payouts: %w", err)
-	}
-
-	return payouts, nil
-}
-
-// ListPending retrieves all pending payouts (requested status)
-func (r *PayoutRepository) ListPending() ([]*model.Payout, error) {
-	query := `
-		SELECT
-			id, merchant_id,
-			amount_vnd, fee_vnd, net_amount_vnd,
-			bank_account_name, bank_account_number, bank_name, bank_branch,
-			status,
-			requested_by, approved_by, approved_at, rejection_reason,
-			processed_by, processed_at, completion_date,
-			bank_reference_number, transaction_receipt_url,
-			failure_reason, retry_count,
-			notes, metadata,
-			created_at, updated_at, deleted_at
-		FROM payouts
-		WHERE status = $1 AND deleted_at IS NULL
-		ORDER BY created_at ASC
-	`
-
-	rows, err := r.db.Query(query, model.PayoutStatusRequested)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list pending payouts: %w", err)
-	}
-	defer rows.Close()
-
-	payouts := make([]*model.Payout, 0)
-	for rows.Next() {
-		payout := &model.Payout{}
-		err := rows.Scan(
-			&payout.ID,
-			&payout.MerchantID,
-			&payout.AmountVND,
-			&payout.FeeVND,
-			&payout.NetAmountVND,
-			&payout.BankAccountName,
-			&payout.BankAccountNumber,
-			&payout.BankName,
-			&payout.BankBranch,
-			&payout.Status,
-			&payout.RequestedBy,
-			&payout.ApprovedBy,
-			&payout.ApprovedAt,
-			&payout.RejectionReason,
-			&payout.ProcessedBy,
-			&payout.ProcessedAt,
-			&payout.CompletionDate,
-			&payout.BankReferenceNumber,
-			&payout.TransactionReceiptURL,
-			&payout.FailureReason,
-			&payout.RetryCount,
-			&payout.Notes,
-			&payout.Metadata,
-			&payout.CreatedAt,
-			&payout.UpdatedAt,
-			&payout.DeletedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan payout: %w", err)
-		}
-		payouts = append(payouts, payout)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating pending payouts: %w", err)
 	}
 
 	return payouts, nil
@@ -322,69 +93,9 @@ func (r *PayoutRepository) ListByStatus(status model.PayoutStatus, limit, offset
 		offset = 0
 	}
 
-	query := `
-		SELECT
-			id, merchant_id,
-			amount_vnd, fee_vnd, net_amount_vnd,
-			bank_account_name, bank_account_number, bank_name, bank_branch,
-			status,
-			requested_by, approved_by, approved_at, rejection_reason,
-			processed_by, processed_at, completion_date,
-			bank_reference_number, transaction_receipt_url,
-			failure_reason, retry_count,
-			notes, metadata,
-			created_at, updated_at, deleted_at
-		FROM payouts
-		WHERE status = $1 AND deleted_at IS NULL
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`
-
-	rows, err := r.db.Query(query, status, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list payouts by status: %w", err)
-	}
-	defer rows.Close()
-
 	payouts := make([]*model.Payout, 0)
-	for rows.Next() {
-		payout := &model.Payout{}
-		err := rows.Scan(
-			&payout.ID,
-			&payout.MerchantID,
-			&payout.AmountVND,
-			&payout.FeeVND,
-			&payout.NetAmountVND,
-			&payout.BankAccountName,
-			&payout.BankAccountNumber,
-			&payout.BankName,
-			&payout.BankBranch,
-			&payout.Status,
-			&payout.RequestedBy,
-			&payout.ApprovedBy,
-			&payout.ApprovedAt,
-			&payout.RejectionReason,
-			&payout.ProcessedBy,
-			&payout.ProcessedAt,
-			&payout.CompletionDate,
-			&payout.BankReferenceNumber,
-			&payout.TransactionReceiptURL,
-			&payout.FailureReason,
-			&payout.RetryCount,
-			&payout.Notes,
-			&payout.Metadata,
-			&payout.CreatedAt,
-			&payout.UpdatedAt,
-			&payout.DeletedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan payout: %w", err)
-		}
-		payouts = append(payouts, payout)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating payouts: %w", err)
+	if err := r.gormDB.Where("status = ?", status).Offset(offset).Limit(limit).Find(&payouts).Error; err != nil {
+		return nil, fmt.Errorf("failed to list payouts by status: %w", err)
 	}
 
 	return payouts, nil
@@ -412,24 +123,8 @@ func (r *PayoutRepository) UpdateStatus(id string, status model.PayoutStatus) er
 		return ErrInvalidPayoutStatus
 	}
 
-	query := `
-		UPDATE payouts
-		SET status = $2, updated_at = $3
-		WHERE id = $1 AND deleted_at IS NULL
-	`
-
-	result, err := r.db.Exec(query, id, status, time.Now())
-	if err != nil {
+	if err := r.gormDB.Model(&model.Payout{}).Where("id = ?", id).Update("status", status).Error; err != nil {
 		return fmt.Errorf("failed to update payout status: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return ErrPayoutNotFound
 	}
 
 	return nil
@@ -444,69 +139,11 @@ func (r *PayoutRepository) Update(payout *model.Payout) error {
 		return ErrInvalidPayoutID
 	}
 
-	query := `
-		UPDATE payouts SET
-			merchant_id = $2,
-			amount_vnd = $3,
-			fee_vnd = $4,
-			net_amount_vnd = $5,
-			bank_account_name = $6,
-			bank_account_number = $7,
-			bank_name = $8,
-			bank_branch = $9,
-			status = $10,
-			requested_by = $11,
-			approved_by = $12,
-			approved_at = $13,
-			rejection_reason = $14,
-			processed_by = $15,
-			processed_at = $16,
-			completion_date = $17,
-			bank_reference_number = $18,
-			transaction_receipt_url = $19,
-			failure_reason = $20,
-			retry_count = $21,
-			notes = $22,
-			metadata = $23,
-			updated_at = $24
-		WHERE id = $1 AND deleted_at IS NULL
-		RETURNING updated_at
-	`
+	if err := r.gormDB.Where("id = ?", payout.ID).Updates(payout).Error; err != nil {
+		return fmt.Errorf("failed to update payout: %w", err)
+	}
 
-	payout.UpdatedAt = time.Now()
-
-	err := r.db.QueryRow(
-		query,
-		payout.ID,
-		payout.MerchantID,
-		payout.AmountVND,
-		payout.FeeVND,
-		payout.NetAmountVND,
-		payout.BankAccountName,
-		payout.BankAccountNumber,
-		payout.BankName,
-		payout.BankBranch,
-		payout.Status,
-		payout.RequestedBy,
-		payout.ApprovedBy,
-		payout.ApprovedAt,
-		payout.RejectionReason,
-		payout.ProcessedBy,
-		payout.ProcessedAt,
-		payout.CompletionDate,
-		payout.BankReferenceNumber,
-		payout.TransactionReceiptURL,
-		payout.FailureReason,
-		payout.RetryCount,
-		payout.Notes,
-		payout.Metadata,
-		payout.UpdatedAt,
-	).Scan(&payout.UpdatedAt)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ErrPayoutNotFound
-		}
+	if err := r.gormDB.Save(payout).Error; err != nil {
 		return fmt.Errorf("failed to update payout: %w", err)
 	}
 
@@ -518,40 +155,25 @@ func (r *PayoutRepository) MarkCompleted(id string, referenceNumber string) erro
 	if id == "" {
 		return ErrInvalidPayoutID
 	}
+
 	if referenceNumber == "" {
 		return errors.New("bank reference number cannot be empty")
 	}
 
-	now := time.Now()
-	query := `
-		UPDATE payouts
-		SET
-			status = $2,
-			bank_reference_number = $3,
-			completion_date = $4,
-			updated_at = $4
-		WHERE id = $1 AND deleted_at IS NULL
-	`
-
-	result, err := r.db.Exec(query, id, model.PayoutStatusCompleted, referenceNumber, now)
+	payout, err := r.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("failed to mark payout as completed: %w", err)
+		return fmt.Errorf("failed to get payout: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
+	payout.Status = model.PayoutStatusCompleted
+	payout.BankReferenceNumber = sql.NullString{String: referenceNumber, Valid: true}
+	payout.CompletionDate = sql.NullTime{Time: time.Now(), Valid: true}
+	payout.UpdatedAt = time.Now()
 
-	if rowsAffected == 0 {
-		return ErrPayoutNotFound
-	}
-
-	return nil
+	return r.Update(payout)
 }
 
-// Approve approves a payout request
-func (r *PayoutRepository) Approve(id string, approvedBy string) error {
+func (r *PayoutRepository) Approve(id, approvedBy string) error {
 	if id == "" {
 		return ErrInvalidPayoutID
 	}
@@ -560,38 +182,17 @@ func (r *PayoutRepository) Approve(id string, approvedBy string) error {
 	}
 
 	now := time.Now()
-	query := `
-		UPDATE payouts
-		SET
-			status = $2,
-			approved_by = $3,
-			approved_at = $4,
-			updated_at = $4
-		WHERE id = $1 AND status = $5 AND deleted_at IS NULL
-	`
-
-	result, err := r.db.Exec(
-		query,
-		id,
-		model.PayoutStatusApproved,
-		approvedBy,
-		now,
-		model.PayoutStatusRequested,
-	)
+	payout, err := r.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("failed to approve payout: %w", err)
+		return fmt.Errorf("failed to get payout: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
+	payout.Status = model.PayoutStatusApproved
+	payout.ApprovedBy = sql.NullString{String: approvedBy, Valid: true}
+	payout.ApprovedAt = sql.NullTime{Time: now, Valid: true}
+	payout.UpdatedAt = now
 
-	if rowsAffected == 0 {
-		return errors.New("payout not found or not in requested status")
-	}
-
-	return nil
+	return r.Update(payout)
 }
 
 // Reject rejects a payout request
@@ -604,46 +205,22 @@ func (r *PayoutRepository) Reject(id string, reason string) error {
 	}
 
 	now := time.Now()
-	query := `
-		UPDATE payouts
-		SET
-			status = $2,
-			rejection_reason = $3,
-			updated_at = $4
-		WHERE id = $1 AND status = $5 AND deleted_at IS NULL
-	`
-
-	result, err := r.db.Exec(
-		query,
-		id,
-		model.PayoutStatusRejected,
-		reason,
-		now,
-		model.PayoutStatusRequested,
-	)
+	payout, err := r.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("failed to reject payout: %w", err)
+		return fmt.Errorf("failed to get payout: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
+	payout.Status = model.PayoutStatusRejected
+	payout.RejectionReason = sql.NullString{String: reason, Valid: true}
+	payout.UpdatedAt = now
 
-	if rowsAffected == 0 {
-		return errors.New("payout not found or not in requested status")
-	}
-
-	return nil
+	return r.Update(payout)
 }
 
 // Count returns the total number of payouts (excluding deleted)
 func (r *PayoutRepository) Count() (int64, error) {
-	query := `SELECT COUNT(*) FROM payouts WHERE deleted_at IS NULL`
-
 	var count int64
-	err := r.db.QueryRow(query).Scan(&count)
-	if err != nil {
+	if err := r.gormDB.Model(&model.Payout{}).Where("deleted_at IS NULL").Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count payouts: %w", err)
 	}
 
@@ -656,11 +233,8 @@ func (r *PayoutRepository) CountByMerchant(merchantID string) (int64, error) {
 		return 0, errors.New("merchant ID cannot be empty")
 	}
 
-	query := `SELECT COUNT(*) FROM payouts WHERE merchant_id = $1 AND deleted_at IS NULL`
-
 	var count int64
-	err := r.db.QueryRow(query, merchantID).Scan(&count)
-	if err != nil {
+	if err := r.gormDB.Model(&model.Payout{}).Where("merchant_id = ? AND deleted_at IS NULL", merchantID).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count payouts by merchant: %w", err)
 	}
 
@@ -673,11 +247,8 @@ func (r *PayoutRepository) CountByStatus(status model.PayoutStatus) (int64, erro
 		return 0, ErrInvalidPayoutStatus
 	}
 
-	query := `SELECT COUNT(*) FROM payouts WHERE status = $1 AND deleted_at IS NULL`
-
 	var count int64
-	err := r.db.QueryRow(query, status).Scan(&count)
-	if err != nil {
+	if err := r.gormDB.Model(&model.Payout{}).Where("status = ? AND deleted_at IS NULL", status).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count payouts by status: %w", err)
 	}
 
@@ -690,25 +261,13 @@ func (r *PayoutRepository) Delete(id string) error {
 		return ErrInvalidPayoutID
 	}
 
-	query := `
-		UPDATE payouts
-		SET deleted_at = $2, updated_at = $2
-		WHERE id = $1 AND deleted_at IS NULL
-	`
-
-	result, err := r.db.Exec(query, id, time.Now())
+	payout, err := r.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("failed to delete payout: %w", err)
+		return fmt.Errorf("failed to get payout: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
+	payout.DeletedAt = sql.NullTime{Time: time.Now(), Valid: true}
+	payout.UpdatedAt = time.Now()
 
-	if rowsAffected == 0 {
-		return ErrPayoutNotFound
-	}
-
-	return nil
+	return r.Update(payout)
 }

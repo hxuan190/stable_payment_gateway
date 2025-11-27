@@ -168,3 +168,7 @@ func GetTierLimitUSD(tier KYCTier) decimal.Decimal {
 		return decimal.NewFromInt(5000) // Default to Tier 1
 	}
 }
+
+func (Merchant) TableName() string {
+	return "merchants"
+}

@@ -136,3 +136,7 @@ func (a *AuditLog) GetDescription() string {
 	}
 	return ""
 }
+
+func (AuditLog) TableName() string {
+	return "audit_logs"
+}

@@ -4,23 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
+	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
 
 var (
-	// ErrKYCDocumentNotFound is returned when a KYC document is not found
-	ErrKYCDocumentNotFound = errors.New("KYC document not found")
-	// ErrInvalidKYCDocument is returned when a KYC document is invalid
-	ErrInvalidKYCDocument = errors.New("invalid KYC document")
-	// ErrKYCDocumentAlreadyReviewed is returned when attempting to review an already reviewed document
+	ErrKYCDocumentNotFound        = errors.New("KYC document not found")
+	ErrInvalidKYCDocument         = errors.New("invalid KYC document")
 	ErrKYCDocumentAlreadyReviewed = errors.New("KYC document has already been reviewed")
 )
 
-// KYCDocumentRepository defines the interface for KYC document data access
 type KYCDocumentRepository interface {
 	Create(ctx context.Context, document *model.KYCDocument) error
 	GetByID(ctx context.Context, id uuid.UUID) (*model.KYCDocument, error)
@@ -36,7 +33,6 @@ type KYCDocumentRepository interface {
 	HasApprovedDocumentOfType(ctx context.Context, merchantID string, docType model.KYCDocumentType) (bool, error)
 }
 
-// KYCDocumentFilter represents filters for querying KYC documents
 type KYCDocumentFilter struct {
 	MerchantID   string
 	DocumentType string
@@ -46,104 +42,170 @@ type KYCDocumentFilter struct {
 }
 
 type kycDocumentRepositoryImpl struct {
-	db     *sql.DB
-	logger *logger.Logger
+	db *gorm.DB
 }
 
-// NewKYCDocumentRepository creates a new KYC document repository
-func NewKYCDocumentRepository(db *sql.DB, log *logger.Logger) KYCDocumentRepository {
-	return &kycDocumentRepositoryImpl{
-		db:     db,
-		logger: log,
-	}
+func NewKYCDocumentRepository(db *gorm.DB) KYCDocumentRepository {
+	return &kycDocumentRepositoryImpl{db: db}
 }
 
-// HasApprovedDocumentOfType checks if merchant has an approved document of a specific type
-// This is the CRITICAL method used by ComplianceService.CheckKYCTierRequirements
 func (r *kycDocumentRepositoryImpl) HasApprovedDocumentOfType(ctx context.Context, merchantID string, docType model.KYCDocumentType) (bool, error) {
-	query := `
-		SELECT EXISTS(
-			SELECT 1 FROM kyc_documents
-			WHERE merchant_id = $1
-			  AND document_type = $2
-			  AND status = $3
-			LIMIT 1
-		)
-	`
-
-	var exists bool
-	err := r.db.QueryRowContext(ctx, query, merchantID, string(docType), model.KYCDocumentStatusApproved).Scan(&exists)
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&model.KYCDocument{}).
+		Where("merchant_id = ? AND document_type = ? AND status = ?", merchantID, string(docType), model.KYCDocumentStatusApproved).
+		Count(&count).Error
 	if err != nil {
-		return false, fmt.Errorf("failed to check document: %w", err)
+		return false, err
 	}
-
-	return exists, nil
+	return count > 0, nil
 }
-
-// Stub implementations for other methods (can be implemented later as needed)
 
 func (r *kycDocumentRepositoryImpl) Create(ctx context.Context, document *model.KYCDocument) error {
-	// TODO: Implement when KYC upload feature is needed
-	r.logger.Warn("KYCDocumentRepository.Create not yet implemented")
-	return errors.New("not implemented")
+	if document.ID == "" {
+		document.ID = uuid.New().String()
+	}
+	if document.CreatedAt.IsZero() {
+		document.CreatedAt = time.Now().UTC()
+	}
+	if document.UpdatedAt.IsZero() {
+		document.UpdatedAt = time.Now().UTC()
+	}
+	return r.db.WithContext(ctx).Create(document).Error
 }
 
 func (r *kycDocumentRepositoryImpl) GetByID(ctx context.Context, id uuid.UUID) (*model.KYCDocument, error) {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.GetByID not yet implemented")
-	return nil, errors.New("not implemented")
+	var document model.KYCDocument
+	err := r.db.WithContext(ctx).Where("id = ?", id.String()).First(&document).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrKYCDocumentNotFound
+		}
+		return nil, err
+	}
+	return &document, nil
 }
 
 func (r *kycDocumentRepositoryImpl) GetByMerchantID(ctx context.Context, merchantID string) ([]*model.KYCDocument, error) {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.GetByMerchantID not yet implemented")
-	return nil, errors.New("not implemented")
+	var documents []*model.KYCDocument
+	err := r.db.WithContext(ctx).Where("merchant_id = ?", merchantID).Order("created_at DESC").Find(&documents).Error
+	return documents, err
 }
 
 func (r *kycDocumentRepositoryImpl) List(ctx context.Context, filter KYCDocumentFilter) ([]*model.KYCDocument, error) {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.List not yet implemented")
-	return nil, errors.New("not implemented")
+	query := r.db.WithContext(ctx).Model(&model.KYCDocument{})
+
+	if filter.MerchantID != "" {
+		query = query.Where("merchant_id = ?", filter.MerchantID)
+	}
+	if filter.DocumentType != "" {
+		query = query.Where("document_type = ?", filter.DocumentType)
+	}
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.Limit > 0 {
+		query = query.Limit(filter.Limit)
+	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
+	}
+
+	var documents []*model.KYCDocument
+	err := query.Order("created_at DESC").Find(&documents).Error
+	return documents, err
 }
 
 func (r *kycDocumentRepositoryImpl) ListByStatus(ctx context.Context, status model.KYCDocumentStatus) ([]*model.KYCDocument, error) {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.ListByStatus not yet implemented")
-	return nil, errors.New("not implemented")
+	var documents []*model.KYCDocument
+	err := r.db.WithContext(ctx).Where("status = ?", status).Order("created_at DESC").Find(&documents).Error
+	return documents, err
 }
 
 func (r *kycDocumentRepositoryImpl) Update(ctx context.Context, document *model.KYCDocument) error {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.Update not yet implemented")
-	return errors.New("not implemented")
+	document.UpdatedAt = time.Now().UTC()
+	return r.db.WithContext(ctx).Save(document).Error
 }
 
 func (r *kycDocumentRepositoryImpl) Delete(ctx context.Context, id uuid.UUID) error {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.Delete not yet implemented")
-	return errors.New("not implemented")
+	result := r.db.WithContext(ctx).Where("id = ?", id.String()).Delete(&model.KYCDocument{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrKYCDocumentNotFound
+	}
+	return nil
 }
 
 func (r *kycDocumentRepositoryImpl) Approve(ctx context.Context, id string, reviewerID string, notes string) error {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.Approve not yet implemented")
-	return errors.New("not implemented")
+	var document model.KYCDocument
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&document).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrKYCDocumentNotFound
+		}
+		return err
+	}
+
+	if document.HasBeenReviewed() {
+		return ErrKYCDocumentAlreadyReviewed
+	}
+
+	now := time.Now().UTC()
+	updates := map[string]interface{}{
+		"status":         model.KYCDocumentStatusApproved,
+		"reviewed_by":    sql.NullString{String: reviewerID, Valid: true},
+		"reviewed_at":    sql.NullTime{Time: now, Valid: true},
+		"reviewer_notes": sql.NullString{String: notes, Valid: notes != ""},
+		"updated_at":     now,
+	}
+
+	return r.db.WithContext(ctx).Model(&model.KYCDocument{}).Where("id = ?", id).Updates(updates).Error
 }
 
 func (r *kycDocumentRepositoryImpl) Reject(ctx context.Context, id string, reviewerID string, notes string) error {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.Reject not yet implemented")
-	return errors.New("not implemented")
+	var document model.KYCDocument
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&document).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrKYCDocumentNotFound
+		}
+		return err
+	}
+
+	if document.HasBeenReviewed() {
+		return ErrKYCDocumentAlreadyReviewed
+	}
+
+	now := time.Now().UTC()
+	updates := map[string]interface{}{
+		"status":         model.KYCDocumentStatusRejected,
+		"reviewed_by":    sql.NullString{String: reviewerID, Valid: true},
+		"reviewed_at":    sql.NullTime{Time: now, Valid: true},
+		"reviewer_notes": sql.NullString{String: notes, Valid: notes != ""},
+		"updated_at":     now,
+	}
+
+	return r.db.WithContext(ctx).Model(&model.KYCDocument{}).Where("id = ?", id).Updates(updates).Error
 }
 
 func (r *kycDocumentRepositoryImpl) GetPendingDocuments(ctx context.Context, limit int) ([]*model.KYCDocument, error) {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.GetPendingDocuments not yet implemented")
-	return nil, errors.New("not implemented")
+	if limit <= 0 {
+		limit = 100
+	}
+	var documents []*model.KYCDocument
+	err := r.db.WithContext(ctx).
+		Where("status = ?", model.KYCDocumentStatusPending).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&documents).Error
+	return documents, err
 }
 
 func (r *kycDocumentRepositoryImpl) CountByMerchantAndStatus(ctx context.Context, merchantID string, status model.KYCDocumentStatus) (int64, error) {
-	// TODO: Implement when needed
-	r.logger.Warn("KYCDocumentRepository.CountByMerchantAndStatus not yet implemented")
-	return 0, errors.New("not implemented")
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&model.KYCDocument{}).
+		Where("merchant_id = ? AND status = ?", merchantID, status).
+		Count(&count).Error
+	return count, err
 }

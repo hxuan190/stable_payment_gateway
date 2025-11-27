@@ -1,11 +1,10 @@
 package payment
 
 import (
-	"database/sql"
-
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
 	paymenthttp "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/http"
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
@@ -25,7 +24,7 @@ type Module struct {
 
 // Config holds configuration for payment module initialization
 type Config struct {
-	DB          *sql.DB
+	DB          *gorm.DB
 	RedisClient *redis.Client
 	EventBus    events.EventBus
 	Logger      *logrus.Logger

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -12,20 +11,21 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // HealthHandler handles health check endpoints
 type HealthHandler struct {
-	db            *sql.DB
-	cache         cache.Cache
-	solanaClient  *solana.Client
-	solanaWallet  *solana.Wallet
-	version       string
+	db           *gorm.DB
+	cache        cache.Cache
+	solanaClient *solana.Client
+	solanaWallet *solana.Wallet
+	version      string
 }
 
 // NewHealthHandler creates a new health check handler
 func NewHealthHandler(
-	db *sql.DB,
+	db *gorm.DB,
 	cache cache.Cache,
 	solanaClient *solana.Client,
 	solanaWallet *solana.Wallet,
@@ -96,10 +96,8 @@ func (h *HealthHandler) checkDatabase(ctx context.Context) dto.ServiceStatus {
 	start := time.Now()
 
 	// Try to ping database with timeout
-	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	err := h.db.PingContext(pingCtx)
+	var result int
+	err := h.db.Raw("SELECT 1").Scan(&result).Error
 	latency := time.Since(start)
 
 	if err != nil {
@@ -107,15 +105,6 @@ func (h *HealthHandler) checkDatabase(ctx context.Context) dto.ServiceStatus {
 		return dto.ServiceStatus{
 			Status:  "unhealthy",
 			Message: "Database connection failed",
-			Latency: latency.String(),
-		}
-	}
-
-	// Check if latency is too high (> 100ms is concerning)
-	if latency > 100*time.Millisecond {
-		return dto.ServiceStatus{
-			Status:  "degraded",
-			Message: "Database latency is high",
 			Latency: latency.String(),
 		}
 	}

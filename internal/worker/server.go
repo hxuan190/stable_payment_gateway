@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	payoutrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // Server represents the worker server
@@ -28,7 +28,7 @@ type Server struct {
 	server                *asynq.Server
 	mux                   *asynq.ServeMux
 	scheduler             *asynq.Scheduler
-	db                    *sql.DB
+	db                    *gorm.DB
 	cache                 cache.Cache
 	solanaClient          *solana.Client
 	solanaWallet          *solana.Wallet
@@ -46,7 +46,7 @@ type ServerConfig struct {
 	RedisAddr                string
 	RedisPassword            string
 	RedisDB                  int
-	DB                       *sql.DB
+	DB                       *gorm.DB
 	Cache                    cache.Cache
 	SolanaClient             *solana.Client
 	SolanaWallet             *solana.Wallet

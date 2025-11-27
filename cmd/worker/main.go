@@ -110,7 +110,7 @@ func main() {
 		RedisAddr:                fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
 		RedisPassword:            cfg.Redis.Password,
 		RedisDB:                  cfg.Redis.DB,
-		DB:                       db.DB,
+		DB:                       db.GetGORM(),
 		Cache:                    redisClient,
 		SolanaClient:             solanaClient,
 		SolanaWallet:             solanaWallet,

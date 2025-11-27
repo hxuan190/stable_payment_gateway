@@ -1,14 +1,13 @@
 package repository
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 var (
@@ -25,102 +24,50 @@ var (
 // LedgerRepository handles database operations for ledger entries
 // This is the core of the double-entry accounting system
 type LedgerRepository struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
 // NewLedgerRepository creates a new ledger repository
-func NewLedgerRepository(db *sql.DB) *LedgerRepository {
+func NewLedgerRepository(db *gorm.DB) *LedgerRepository {
 	return &LedgerRepository{
 		db: db,
 	}
 }
 
-// CreateEntry inserts a single ledger entry into the database
-// Note: For double-entry accounting, you should use CreateEntries to ensure atomicity
 func (r *LedgerRepository) CreateEntry(entry *model.LedgerEntry) error {
 	if entry == nil {
 		return ErrInvalidLedgerEntry
 	}
 
-	// Validate entry
 	if err := r.validateEntry(entry); err != nil {
 		return err
 	}
 
-	query := `
-		INSERT INTO ledger_entries (
-			id,
-			debit_account,
-			credit_account,
-			amount,
-			currency,
-			reference_type,
-			reference_id,
-			merchant_id,
-			description,
-			transaction_group,
-			entry_type,
-			metadata,
-			created_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-		)
-		RETURNING id, created_at
-	`
-
-	now := time.Now()
-	if entry.CreatedAt.IsZero() {
-		entry.CreatedAt = now
-	}
-
-	// Generate ID if not provided
 	if entry.ID == "" {
 		entry.ID = uuid.New().String()
 	}
 
-	// Generate transaction group if not provided
 	if entry.TransactionGroup == "" {
 		entry.TransactionGroup = uuid.New().String()
 	}
 
-	err := r.db.QueryRow(
-		query,
-		entry.ID,
-		entry.DebitAccount,
-		entry.CreditAccount,
-		entry.Amount,
-		entry.Currency,
-		entry.ReferenceType,
-		entry.ReferenceID,
-		entry.MerchantID,
-		entry.Description,
-		entry.TransactionGroup,
-		entry.EntryType,
-		entry.Metadata,
-		entry.CreatedAt,
-	).Scan(&entry.ID, &entry.CreatedAt)
-
-	if err != nil {
+	if err := r.db.Create(entry).Error; err != nil {
 		return fmt.Errorf("failed to create ledger entry: %w", err)
 	}
 
 	return nil
 }
 
-// CreateEntries inserts multiple ledger entries as a single atomic transaction
-// This ensures that double-entry accounting rules are enforced
 func (r *LedgerRepository) CreateEntries(entries []*model.LedgerEntry) error {
 	if len(entries) == 0 {
 		return errors.New("no entries to create")
 	}
 
-	// Validate that all entries have the same transaction group
 	transactionGroup := entries[0].TransactionGroup
 	if transactionGroup == "" {
 		transactionGroup = uuid.New().String()
 	}
 
-	// Calculate totals for validation
 	totalDebits := decimal.Zero
 	totalCredits := decimal.Zero
 	currency := entries[0].Currency
@@ -130,24 +77,20 @@ func (r *LedgerRepository) CreateEntries(entries []*model.LedgerEntry) error {
 			return ErrInvalidLedgerEntry
 		}
 
-		// Ensure all entries have the same transaction group
 		if entry.TransactionGroup == "" {
 			entry.TransactionGroup = transactionGroup
 		} else if entry.TransactionGroup != transactionGroup {
 			return errors.New("all entries must have the same transaction group")
 		}
 
-		// Ensure all entries have the same currency
 		if entry.Currency != currency {
 			return errors.New("all entries must have the same currency")
 		}
 
-		// Validate entry
 		if err := r.validateEntry(entry); err != nil {
 			return err
 		}
 
-		// Calculate totals
 		if entry.EntryType == model.EntryTypeDebit {
 			totalDebits = totalDebits.Add(entry.Amount)
 		} else {
@@ -155,125 +98,33 @@ func (r *LedgerRepository) CreateEntries(entries []*model.LedgerEntry) error {
 		}
 	}
 
-	// Validate that debits equal credits
 	if !totalDebits.Equal(totalCredits) {
 		return fmt.Errorf("%w: debits=%s, credits=%s", ErrUnbalancedTransaction, totalDebits.String(), totalCredits.String())
 	}
 
-	// Start transaction
-	tx, err := r.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for _, entry := range entries {
+			if entry.ID == "" {
+				entry.ID = uuid.New().String()
+			}
 
-	query := `
-		INSERT INTO ledger_entries (
-			id,
-			debit_account,
-			credit_account,
-			amount,
-			currency,
-			reference_type,
-			reference_id,
-			merchant_id,
-			description,
-			transaction_group,
-			entry_type,
-			metadata,
-			created_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-		)
-		RETURNING id, created_at
-	`
-
-	now := time.Now()
-
-	for _, entry := range entries {
-		if entry.CreatedAt.IsZero() {
-			entry.CreatedAt = now
+			if err := tx.Create(entry).Error; err != nil {
+				return fmt.Errorf("failed to create ledger entry: %w", err)
+			}
 		}
-
-		// Generate ID if not provided
-		if entry.ID == "" {
-			entry.ID = uuid.New().String()
-		}
-
-		err := tx.QueryRow(
-			query,
-			entry.ID,
-			entry.DebitAccount,
-			entry.CreditAccount,
-			entry.Amount,
-			entry.Currency,
-			entry.ReferenceType,
-			entry.ReferenceID,
-			entry.MerchantID,
-			entry.Description,
-			entry.TransactionGroup,
-			entry.EntryType,
-			entry.Metadata,
-			entry.CreatedAt,
-		).Scan(&entry.ID, &entry.CreatedAt)
-
-		if err != nil {
-			return fmt.Errorf("failed to create ledger entry: %w", err)
-		}
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+		return nil
+	})
 }
 
-// GetByID retrieves a ledger entry by ID
 func (r *LedgerRepository) GetByID(id string) (*model.LedgerEntry, error) {
 	if id == "" {
 		return nil, errors.New("ledger entry ID cannot be empty")
 	}
 
-	query := `
-		SELECT
-			id,
-			debit_account,
-			credit_account,
-			amount,
-			currency,
-			reference_type,
-			reference_id,
-			merchant_id,
-			description,
-			transaction_group,
-			entry_type,
-			metadata,
-			created_at
-		FROM ledger_entries
-		WHERE id = $1
-	`
-
 	entry := &model.LedgerEntry{}
-	err := r.db.QueryRow(query, id).Scan(
-		&entry.ID,
-		&entry.DebitAccount,
-		&entry.CreditAccount,
-		&entry.Amount,
-		&entry.Currency,
-		&entry.ReferenceType,
-		&entry.ReferenceID,
-		&entry.MerchantID,
-		&entry.Description,
-		&entry.TransactionGroup,
-		&entry.EntryType,
-		&entry.Metadata,
-		&entry.CreatedAt,
-	)
-
+	err := r.db.Where("id = ?", id).First(entry).Error
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrLedgerEntryNotFound
 		}
 		return nil, fmt.Errorf("failed to get ledger entry by ID: %w", err)
@@ -282,7 +133,6 @@ func (r *LedgerRepository) GetByID(id string) (*model.LedgerEntry, error) {
 	return entry, nil
 }
 
-// GetByMerchant retrieves ledger entries for a specific merchant with pagination
 func (r *LedgerRepository) GetByMerchant(merchantID string, limit, offset int) ([]*model.LedgerEntry, error) {
 	if merchantID == "" {
 		return nil, errors.New("merchant ID cannot be empty")
@@ -294,65 +144,19 @@ func (r *LedgerRepository) GetByMerchant(merchantID string, limit, offset int) (
 		offset = 0
 	}
 
-	query := `
-		SELECT
-			id,
-			debit_account,
-			credit_account,
-			amount,
-			currency,
-			reference_type,
-			reference_id,
-			merchant_id,
-			description,
-			transaction_group,
-			entry_type,
-			metadata,
-			created_at
-		FROM ledger_entries
-		WHERE merchant_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`
-
-	rows, err := r.db.Query(query, merchantID, limit, offset)
+	var entries []*model.LedgerEntry
+	err := r.db.Where("merchant_id = ?", merchantID).
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&entries).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ledger entries by merchant: %w", err)
-	}
-	defer rows.Close()
-
-	entries := make([]*model.LedgerEntry, 0)
-	for rows.Next() {
-		entry := &model.LedgerEntry{}
-		err := rows.Scan(
-			&entry.ID,
-			&entry.DebitAccount,
-			&entry.CreditAccount,
-			&entry.Amount,
-			&entry.Currency,
-			&entry.ReferenceType,
-			&entry.ReferenceID,
-			&entry.MerchantID,
-			&entry.Description,
-			&entry.TransactionGroup,
-			&entry.EntryType,
-			&entry.Metadata,
-			&entry.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan ledger entry: %w", err)
-		}
-		entries = append(entries, entry)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating ledger entries: %w", err)
 	}
 
 	return entries, nil
 }
 
-// GetByReference retrieves ledger entries by reference type and ID
 func (r *LedgerRepository) GetByReference(refType model.ReferenceType, refID string) ([]*model.LedgerEntry, error) {
 	if refType == "" {
 		return nil, errors.New("reference type cannot be empty")
@@ -361,161 +165,58 @@ func (r *LedgerRepository) GetByReference(refType model.ReferenceType, refID str
 		return nil, errors.New("reference ID cannot be empty")
 	}
 
-	query := `
-		SELECT
-			id,
-			debit_account,
-			credit_account,
-			amount,
-			currency,
-			reference_type,
-			reference_id,
-			merchant_id,
-			description,
-			transaction_group,
-			entry_type,
-			metadata,
-			created_at
-		FROM ledger_entries
-		WHERE reference_type = $1 AND reference_id = $2
-		ORDER BY created_at ASC
-	`
-
-	rows, err := r.db.Query(query, refType, refID)
+	var entries []*model.LedgerEntry
+	err := r.db.Where("reference_type = ? AND reference_id = ?", refType, refID).
+		Order("created_at ASC").
+		Find(&entries).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ledger entries by reference: %w", err)
-	}
-	defer rows.Close()
-
-	entries := make([]*model.LedgerEntry, 0)
-	for rows.Next() {
-		entry := &model.LedgerEntry{}
-		err := rows.Scan(
-			&entry.ID,
-			&entry.DebitAccount,
-			&entry.CreditAccount,
-			&entry.Amount,
-			&entry.Currency,
-			&entry.ReferenceType,
-			&entry.ReferenceID,
-			&entry.MerchantID,
-			&entry.Description,
-			&entry.TransactionGroup,
-			&entry.EntryType,
-			&entry.Metadata,
-			&entry.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan ledger entry: %w", err)
-		}
-		entries = append(entries, entry)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating ledger entries: %w", err)
 	}
 
 	return entries, nil
 }
 
-// GetByTransactionGroup retrieves all ledger entries in a transaction group
 func (r *LedgerRepository) GetByTransactionGroup(transactionGroup string) ([]*model.LedgerEntry, error) {
 	if transactionGroup == "" {
 		return nil, ErrEmptyTransactionGroup
 	}
 
-	query := `
-		SELECT
-			id,
-			debit_account,
-			credit_account,
-			amount,
-			currency,
-			reference_type,
-			reference_id,
-			merchant_id,
-			description,
-			transaction_group,
-			entry_type,
-			metadata,
-			created_at
-		FROM ledger_entries
-		WHERE transaction_group = $1
-		ORDER BY created_at ASC
-	`
-
-	rows, err := r.db.Query(query, transactionGroup)
+	var entries []*model.LedgerEntry
+	err := r.db.Where("transaction_group = ?", transactionGroup).
+		Order("created_at ASC").
+		Find(&entries).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ledger entries by transaction group: %w", err)
-	}
-	defer rows.Close()
-
-	entries := make([]*model.LedgerEntry, 0)
-	for rows.Next() {
-		entry := &model.LedgerEntry{}
-		err := rows.Scan(
-			&entry.ID,
-			&entry.DebitAccount,
-			&entry.CreditAccount,
-			&entry.Amount,
-			&entry.Currency,
-			&entry.ReferenceType,
-			&entry.ReferenceID,
-			&entry.MerchantID,
-			&entry.Description,
-			&entry.TransactionGroup,
-			&entry.EntryType,
-			&entry.Metadata,
-			&entry.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan ledger entry: %w", err)
-		}
-		entries = append(entries, entry)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating ledger entries: %w", err)
 	}
 
 	return entries, nil
 }
 
-// GetAccountBalance calculates the balance for a specific account
-// Debits increase asset/expense accounts, credits increase liability/revenue accounts
 func (r *LedgerRepository) GetAccountBalance(accountName string) (decimal.Decimal, error) {
 	if accountName == "" {
 		return decimal.Zero, errors.New("account name cannot be empty")
 	}
 
-	query := `
-		SELECT
-			COALESCE(SUM(CASE WHEN debit_account = $1 THEN amount ELSE 0 END), 0) as total_debits,
-			COALESCE(SUM(CASE WHEN credit_account = $1 THEN amount ELSE 0 END), 0) as total_credits
-		FROM ledger_entries
-		WHERE debit_account = $1 OR credit_account = $1
-	`
+	var result struct {
+		TotalDebits  decimal.Decimal
+		TotalCredits decimal.Decimal
+	}
 
-	var totalDebits, totalCredits decimal.Decimal
-	err := r.db.QueryRow(query, accountName).Scan(&totalDebits, &totalCredits)
+	err := r.db.Model(&model.LedgerEntry{}).
+		Select("COALESCE(SUM(CASE WHEN debit_account = ? THEN amount ELSE 0 END), 0) as total_debits, "+
+			"COALESCE(SUM(CASE WHEN credit_account = ? THEN amount ELSE 0 END), 0) as total_credits", accountName, accountName).
+		Where("debit_account = ? OR credit_account = ?", accountName, accountName).
+		Scan(&result).Error
 	if err != nil {
 		return decimal.Zero, fmt.Errorf("failed to get account balance: %w", err)
 	}
 
-	// For asset and expense accounts: balance = debits - credits
-	// For liability, equity, and revenue accounts: balance = credits - debits
-	// We return the net amount (debits - credits) and let the caller interpret based on account type
-	balance := totalDebits.Sub(totalCredits)
-
-	return balance, nil
+	return result.TotalDebits.Sub(result.TotalCredits), nil
 }
 
-// Count returns the total number of ledger entries
 func (r *LedgerRepository) Count() (int64, error) {
-	query := `SELECT COUNT(*) FROM ledger_entries`
-
 	var count int64
-	err := r.db.QueryRow(query).Scan(&count)
+	err := r.db.Model(&model.LedgerEntry{}).Count(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to count ledger entries: %w", err)
 	}
@@ -523,16 +224,13 @@ func (r *LedgerRepository) Count() (int64, error) {
 	return count, nil
 }
 
-// CountByMerchant returns the count of ledger entries for a specific merchant
 func (r *LedgerRepository) CountByMerchant(merchantID string) (int64, error) {
 	if merchantID == "" {
 		return 0, errors.New("merchant ID cannot be empty")
 	}
 
-	query := `SELECT COUNT(*) FROM ledger_entries WHERE merchant_id = $1`
-
 	var count int64
-	err := r.db.QueryRow(query, merchantID).Scan(&count)
+	err := r.db.Model(&model.LedgerEntry{}).Where("merchant_id = ?", merchantID).Count(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to count ledger entries by merchant: %w", err)
 	}
@@ -540,43 +238,30 @@ func (r *LedgerRepository) CountByMerchant(merchantID string) (int64, error) {
 	return count, nil
 }
 
-// ValidateDoubleEntry validates that all transactions in the ledger balance
-// This is useful for periodic integrity checks
 func (r *LedgerRepository) ValidateDoubleEntry() error {
-	query := `
-		SELECT
-			transaction_group,
-			currency,
-			SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END) as total_debits,
-			SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END) as total_credits
-		FROM ledger_entries
-		GROUP BY transaction_group, currency
-		HAVING SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END) !=
-		       SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END)
-	`
+	var results []struct {
+		TransactionGroup string
+		Currency         string
+		TotalDebits      decimal.Decimal
+		TotalCredits     decimal.Decimal
+	}
 
-	rows, err := r.db.Query(query)
+	err := r.db.Model(&model.LedgerEntry{}).
+		Select("transaction_group, currency, " +
+			"SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END) as total_debits, " +
+			"SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END) as total_credits").
+		Group("transaction_group, currency").
+		Having("SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END) != SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END)").
+		Scan(&results).Error
 	if err != nil {
 		return fmt.Errorf("failed to validate double entry: %w", err)
 	}
-	defer rows.Close()
 
-	unbalancedGroups := make([]string, 0)
-	for rows.Next() {
-		var group, currency string
-		var debits, credits decimal.Decimal
-		err := rows.Scan(&group, &currency, &debits, &credits)
-		if err != nil {
-			return fmt.Errorf("failed to scan unbalanced transaction: %w", err)
+	if len(results) > 0 {
+		unbalancedGroups := make([]string, 0, len(results))
+		for _, r := range results {
+			unbalancedGroups = append(unbalancedGroups, fmt.Sprintf("%s (debits: %s, credits: %s %s)", r.TransactionGroup, r.TotalDebits, r.TotalCredits, r.Currency))
 		}
-		unbalancedGroups = append(unbalancedGroups, fmt.Sprintf("%s (debits: %s, credits: %s %s)", group, debits, credits, currency))
-	}
-
-	if err = rows.Err(); err != nil {
-		return fmt.Errorf("error iterating unbalanced transactions: %w", err)
-	}
-
-	if len(unbalancedGroups) > 0 {
 		return fmt.Errorf("found %d unbalanced transaction groups: %v", len(unbalancedGroups), unbalancedGroups)
 	}
 
