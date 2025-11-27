@@ -14,18 +14,26 @@ import (
 	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	auditrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/audit/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
+	compliancerepository "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
+	complianceservice "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
+	infrastructurerepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
+	ledgerrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
 	merchanthandler "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/handler"
+	merchantrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
+	merchantservice "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
+	payoutrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
+	payoutservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	jwtpkg "github.com/hxuan190/stable_payment_gateway/internal/pkg/jwt"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/storage"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
-	"github.com/sirupsen/logrus"
+	"github.com/redis/go-redis/v9"
+	"github.com/shopspring/decimal"
 )
 
 // kycStorageAdapter adapts storage.StorageService to handler.StorageService
@@ -39,6 +47,36 @@ func (a *kycStorageAdapter) UploadKYCDocument(ctx context.Context, merchantID st
 
 func (a *kycStorageAdapter) DeleteFile(ctx context.Context, fileURL string) error {
 	return a.storage.DeleteKYCDocument(ctx, fileURL)
+}
+
+// walletBalanceGetterAdapter adapts Solana wallet to WalletBalanceGetter interface
+type walletBalanceGetterAdapter struct {
+	wallet *solana.Wallet
+}
+
+func (a *walletBalanceGetterAdapter) GetBalance() (decimal.Decimal, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tokenMints := map[string]string{
+		"USDT": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+		"USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+	}
+
+	walletBalance, err := a.wallet.GetWalletBalance(ctx, tokenMints)
+	if err != nil {
+		return decimal.Zero, err
+	}
+
+	totalUSD := decimal.Zero
+	if usdtInfo, ok := walletBalance.Tokens["USDT"]; ok {
+		totalUSD = totalUSD.Add(usdtInfo.Balance)
+	}
+	if usdcInfo, ok := walletBalance.Tokens["USDC"]; ok {
+		totalUSD = totalUSD.Add(usdcInfo.Balance)
+	}
+
+	return totalUSD, nil
 }
 
 // AdminServer represents the admin HTTP server
@@ -136,24 +174,24 @@ func (s *AdminServer) corsMiddleware() gin.HandlerFunc {
 
 // setupRoutes configures all admin API routes
 func (s *AdminServer) setupRoutes(router *gin.Engine) {
-	// Initialize logger for repositories that need it
-	repoLogger := &logger.Logger{}
-
 	// Initialize repositories
-	merchantRepo := repository.NewMerchantRepository(s.db)
+	merchantRepo := merchantrepository.NewMerchantRepository(s.db)
 	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(s.db)
 	paymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(newPaymentRepo)
-	payoutRepo := repository.NewPayoutRepository(s.db)
-	balanceRepo := repository.NewBalanceRepository(s.db)
-	ledgerRepo := repository.NewLedgerRepository(s.db)
-	auditRepo := repository.NewAuditRepository(s.db)
-	blockchainTxRepo := repository.NewBlockchainTxRepository(s.db)
-	walletBalanceRepo := repository.NewWalletBalanceRepository(s.db)
-	travelRuleRepo := repository.NewTravelRuleRepository(s.db, repoLogger)
-	kycDocumentRepo := repository.NewKYCDocumentRepository(s.db, repoLogger)
+	payoutRepo := payoutrepository.NewPayoutRepository(s.db)
+	balanceRepo := ledgerrepository.NewBalanceRepository(s.db)
+	auditRepo := auditrepository.NewAuditRepository(s.db)
+
+	// Travel Rule repo requires encryption cipher - skip for now
+	var travelRuleRepo compliancerepository.TravelRuleRepository
+
+	kycDocumentRepo := infrastructurerepository.NewKYCDocumentRepository(s.db, logger.GetLogger())
+
+	// AML Rule repo requires GORM - skip for now
+	var amlRuleRepo *compliancerepository.AMLRuleRepository
 
 	// Initialize TRM Labs client (for AML screening)
-	var trmClient service.TRMLabsClient
+	var trmClient complianceservice.TRMLabsClient
 	if s.config.TRMLabs.APIKey != "" {
 		trmClient = trmlabs.NewClient(s.config.TRMLabs.APIKey, s.config.TRMLabs.BaseURL)
 	} else {
@@ -182,55 +220,38 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 		logger.Warn("S3 not configured, using mock storage")
 	}
 
-	// Initialize exchange rate service with correct parameters
-	exchangeRateService := service.NewExchangeRateService(
-		s.config.ExchangeRate.PrimaryAPI,
-		s.config.ExchangeRate.SecondaryAPI,
-		time.Duration(s.config.ExchangeRate.CacheTTL)*time.Second,
-		time.Duration(s.config.ExchangeRate.Timeout)*time.Second,
-		s.cache,
-		logrus.New(), // Use logrus logger
-	)
+	// Initialize services
+	merchantService := merchantservice.NewMerchantService(*merchantRepo, s.db)
 
-	// Initialize services with correct parameters
-	svcLogger := logrus.New()
-	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, s.db)
-	notificationService := service.NewNotificationService(service.NotificationServiceConfig{
-		Logger:      svcLogger,
-		HTTPTimeout: 30 * time.Second,
-		EmailSender: s.config.Email.FromEmail,
-		// Note: EmailAPIKey would be used for service like SendGrid/Mailgun
-		// For SMTP, we'd need to extend the config or use a different approach
-	})
-	merchantService := service.NewMerchantService(merchantRepo, balanceRepo, s.db)
+	// Initialize compliance services
+	ruleEngine := complianceservice.NewRuleEngine(amlRuleRepo, newPaymentRepo, logger.GetLogger())
 
-	// Initialize AML service first (required by compliance service)
-	amlRuleRepo := repository.NewAMLRuleRepository(s.db, repoLogger)
-	ruleEngine := service.NewRuleEngine(amlRuleRepo, paymentRepo, repoLogger)
+	var redisClient *redis.Client
+	if rc, ok := s.cache.(*cache.RedisCache); ok {
+		redisClient = rc.GetClient()
+	}
 
-	amlService := service.NewAMLService(
+	amlService := complianceservice.NewAMLService(
 		trmClient,
 		auditRepo,
-		paymentRepo,
+		newPaymentRepo,
 		ruleEngine,
-		s.cache,
-		repoLogger,
+		redisClient,
+		logger.GetLogger(),
 	)
 
-	complianceService := service.NewComplianceService(
+	complianceService := complianceservice.NewComplianceService(
 		amlService,
 		merchantRepo,
 		travelRuleRepo,
 		kycDocumentRepo,
-		paymentRepo,
+		newPaymentRepo,
 		auditRepo,
-		repoLogger,
+		logger.GetLogger(),
 	)
-	payoutService := service.NewPayoutService(
-		payoutRepo,
-		merchantRepo,
-		balanceRepo,
-		ledgerService,
+
+	payoutService := payoutservice.NewPayoutService(
+		*payoutRepo,
 		s.db,
 	)
 
@@ -261,7 +282,9 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 		protected.Use(middleware.JWTAuth(s.jwtManager))
 		{
 			// Initialize admin handler
-			// Note: Passing nil for wallet - admin operations don't need wallet balance
+			// Create wallet balance getter adapter (defined in server.go)
+			walletBalanceGetter := &walletBalanceGetterAdapter{wallet: s.solanaWallet}
+
 			adminHandler := handler.NewAdminHandler(
 				merchantService,
 				payoutService,
@@ -272,32 +295,25 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 				balanceRepo,
 				travelRuleRepo,
 				kycDocumentRepo,
-				nil, // WalletBalanceGetter - optional for admin operations
+				walletBalanceGetter,
 			)
 
 			// Create storage adapter for KYC handler
 			storageAdapter := &kycStorageAdapter{storage: storageService}
 			kycHandler := merchanthandler.NewKYCHandler(storageAdapter, kycDocumentRepo)
 
-			// AML rule management handler
-			amlRuleHandler := handler.NewAMLRuleHandler(amlRuleRepo)
-
 			// Merchant management routes
 			merchants := protected.Group("/merchants")
 			{
-				merchants.GET("", adminHandler.ListMerchants)                  // List all merchants
-				merchants.GET("/:id", adminHandler.GetMerchant)                // Get merchant details
-				merchants.PUT("/:id/kyc", adminHandler.UpdateMerchantKYC)      // Update KYC status
-				merchants.GET("/:id/balance", adminHandler.GetMerchantBalance) // Get merchant balance
+				merchants.GET("", adminHandler.ListMerchants)   // List all merchants
+				merchants.GET("/:id", adminHandler.GetMerchant) // Get merchant details
 			}
 
 			// KYC management routes
 			kyc := protected.Group("/kyc")
 			{
-				kyc.GET("/pending", adminHandler.GetPendingKYC)         // Get pending KYC applications
 				kyc.POST("/:id/approve", adminHandler.ApproveKYC)       // Approve KYC
 				kyc.POST("/:id/reject", adminHandler.RejectKYC)         // Reject KYC
-				kyc.GET("/documents/:id", kycHandler.GetDocument)       // Get KYC document
 				kyc.DELETE("/documents/:id", kycHandler.DeleteDocument) // Delete KYC document
 			}
 
@@ -311,39 +327,18 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 				payouts.POST("/:id/complete", adminHandler.CompletePayout) // Mark as completed
 			}
 
-			// Payment monitoring routes
-			payments := protected.Group("/payments")
-			{
-				payments.GET("", adminHandler.ListPayments)          // List all payments
-				payments.GET("/:id", adminHandler.GetPayment)        // Get payment details
-				payments.GET("/stats", adminHandler.GetPaymentStats) // Get payment statistics
-			}
-
 			// System monitoring routes
 			system := protected.Group("/system")
 			{
-				system.GET("/stats", adminHandler.GetSystemStats)            // System-wide statistics
-				system.GET("/wallet-balance", adminHandler.GetWalletBalance) // Hot wallet balance
-				system.GET("/audit-logs", adminHandler.GetAuditLogs)         // Audit logs
+				system.GET("/stats", adminHandler.GetStats)            // System-wide statistics
+				system.GET("/stats/daily", adminHandler.GetDailyStats) // Daily statistics
 			}
 
 			// Compliance routes
 			compliance := protected.Group("/compliance")
 			{
-				compliance.GET("/high-risk", adminHandler.GetHighRiskTransactions) // High-risk transactions
-				compliance.GET("/travel-rule", adminHandler.GetTravelRuleData)     // Travel rule data
-			}
-
-			// AML rule management routes
-			amlRules := protected.Group("/aml-rules")
-			{
-				amlRules.GET("", amlRuleHandler.ListRules)                             // List all rules
-				amlRules.GET("/:id", amlRuleHandler.GetRule)                           // Get rule by ID
-				amlRules.GET("/category/:category", amlRuleHandler.GetRulesByCategory) // Get rules by category
-				amlRules.POST("", amlRuleHandler.CreateRule)                           // Create new rule
-				amlRules.PUT("/:id", amlRuleHandler.UpdateRule)                        // Update rule
-				amlRules.DELETE("/:id", amlRuleHandler.DeleteRule)                     // Delete rule
-				amlRules.PATCH("/:id/toggle", amlRuleHandler.ToggleRule)               // Enable/disable rule
+				compliance.GET("/travel-rule", adminHandler.GetTravelRuleData)             // Travel rule data
+				compliance.GET("/metrics/:merchant_id", adminHandler.GetComplianceMetrics) // Compliance metrics
 			}
 		}
 	}
@@ -389,7 +384,7 @@ func (s *AdminServer) handleAdminLogin(c *gin.Context) {
 	adminID := "admin-1" // For MVP, use a fixed admin ID
 	role := "super_admin"
 
-	token, expiresAt, err := s.jwtManager.GenerateToken(adminID, req.Email, role)
+	token, err := s.jwtManager.GenerateToken(adminID, req.Email, role)
 	if err != nil {
 		logger.Error("Failed to generate JWT token", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -400,6 +395,9 @@ func (s *AdminServer) handleAdminLogin(c *gin.Context) {
 		})
 		return
 	}
+
+	// Calculate expiration time
+	expiresAt := time.Now().Add(time.Duration(s.config.JWT.ExpirationHours) * time.Hour)
 
 	// Log successful login
 	logger.Info("Admin logged in successfully", logger.Fields{

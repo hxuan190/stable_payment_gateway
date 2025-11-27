@@ -2,13 +2,12 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
+	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 )
 
 const (
@@ -20,13 +19,13 @@ const (
 
 // ComplianceExpiryJob handles expiring payments stuck in pending_compliance status
 type ComplianceExpiryJob struct {
-	paymentRepo repository.PaymentRepository
+	paymentRepo paymentdomain.PaymentRepository
 	logger      *logrus.Logger
 }
 
 // NewComplianceExpiryJob creates a new compliance expiry job
 func NewComplianceExpiryJob(
-	paymentRepo repository.PaymentRepository,
+	paymentRepo paymentdomain.PaymentRepository,
 	logger *logrus.Logger,
 ) *ComplianceExpiryJob {
 	return &ComplianceExpiryJob{
@@ -83,7 +82,7 @@ func (j *ComplianceExpiryJob) Run(ctx context.Context) error {
 }
 
 // expirePayment marks a single payment as failed due to compliance timeout
-func (j *ComplianceExpiryJob) expirePayment(ctx context.Context, payment *model.Payment) error {
+func (j *ComplianceExpiryJob) expirePayment(ctx context.Context, payment *paymentdomain.Payment) error {
 	j.logger.WithFields(logrus.Fields{
 		"payment_id":          payment.ID,
 		"merchant_id":         payment.MerchantID,
@@ -92,9 +91,11 @@ func (j *ComplianceExpiryJob) expirePayment(ctx context.Context, payment *model.
 	}).Info("Expiring payment due to compliance timeout")
 
 	// Update payment status to failed with reason
-	payment.Status = model.PaymentStatusFailed
-	payment.FailureReason.Valid = true
-	payment.FailureReason.String = "Compliance data (FATF Travel Rule) not submitted within 24 hours deadline"
+	payment.Status = paymentdomain.PaymentStatusFailed
+	payment.FailureReason = sql.NullString{
+		Valid:  true,
+		String: "Compliance data (FATF Travel Rule) not submitted within 24 hours deadline",
+	}
 
 	// Update payment in database
 	if err := j.paymentRepo.Update(payment); err != nil {

@@ -13,10 +13,10 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	auditRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/audit/repository"
 	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 )
 
 var (
@@ -70,7 +70,7 @@ type AMLService interface {
 
 type amlServiceImpl struct {
 	trmClient            TRMLabsClient
-	auditRepo            *repository.AuditRepository
+	auditRepo            *auditRepository.AuditRepository
 	paymentRepo          paymentdomain.PaymentRepository
 	ruleEngine           *RuleEngine
 	redisClient          *redis.Client
@@ -88,7 +88,7 @@ type TRMLabsClient interface {
 
 func NewAMLService(
 	trmClient TRMLabsClient,
-	auditRepo *repository.AuditRepository,
+	auditRepo *auditRepository.AuditRepository,
 	paymentRepo paymentdomain.PaymentRepository,
 	ruleEngine *RuleEngine,
 	redisClient *redis.Client,
@@ -499,7 +499,7 @@ func (s *amlServiceImpl) GetScreeningHistory(ctx context.Context, walletAddress 
 	// This is a simplified implementation - in production, you might want a dedicated table
 	action := "aml_screening"
 	resourceType := "payment"
-	auditLogs, err := s.auditRepo.List(repository.AuditFilter{ // Fixed: removed ctx parameter
+	auditLogs, err := s.auditRepo.List(auditRepository.AuditFilter{ // Fixed: removed ctx parameter
 		Action:       &action,
 		ResourceType: &resourceType,
 		Limit:        100,

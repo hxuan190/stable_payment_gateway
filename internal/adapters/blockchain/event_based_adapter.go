@@ -3,8 +3,8 @@ package blockchain
 import (
 	"context"
 
-	"stable_payment_gateway/internal/ports"
-	"stable_payment_gateway/internal/shared/events"
+	"github.com/hxuan190/stable_payment_gateway/internal/ports"
+	"github.com/hxuan190/stable_payment_gateway/internal/shared/events"
 )
 
 // EventBasedListenerAdapter wraps a BlockchainListener and publishes events instead of using callbacks

@@ -4,13 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 )
 
 const (
@@ -22,11 +20,11 @@ const (
 
 // OTCLiquidityMonitorJob handles monitoring OTC partner VND liquidity pools
 type OTCLiquidityMonitorJob struct {
-	db               *sql.DB
-	alertService     AlertService
-	logger           *logrus.Logger
-	minBalanceVND    decimal.Decimal // Minimum safe balance (default 50M VND)
-	criticalVND      decimal.Decimal // Critical threshold (default 10M VND)
+	db            *sql.DB
+	alertService  AlertService
+	logger        *logrus.Logger
+	minBalanceVND decimal.Decimal // Minimum safe balance (default 50M VND)
+	criticalVND   decimal.Decimal // Critical threshold (default 10M VND)
 }
 
 // AlertService defines the interface for sending alerts

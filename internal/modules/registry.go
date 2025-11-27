@@ -6,13 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
-	// Existing services
-	"github.com/hxuan190/stable_payment_gateway/internal/api/handler"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/bsc"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
+	complianceService "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
+	ledgerService "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/service"
+	merchantHandler "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/handler"
+	merchantService "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/service"
+	notificationService "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
 	paymentHandler "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/http"
 	paymentService "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
+	payoutHandler "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/handler"
+	payoutService "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/shared/events"
 )
 
@@ -48,35 +52,35 @@ type PaymentModule struct {
 
 // MerchantModule encapsulates merchant domain
 type MerchantModule struct {
-	Service *service.MerchantService
-	Handler *handler.MerchantHandler
+	Service *merchantService.MerchantService
+	Handler *merchantHandler.MerchantHandler
 }
 
 // PayoutModule encapsulates payout domain
 type PayoutModule struct {
-	Service *service.PayoutService
-	Handler *handler.PayoutHandler
+	Service *payoutService.PayoutService
+	Handler *payoutHandler.PayoutHandler
 }
 
 // BlockchainModule encapsulates blockchain operations
 type BlockchainModule struct {
-	SolanaListener *solana.Listener
-	BSCListener    *bsc.Listener
+	SolanaListener *solana.TransactionListener
+	BSCListener    *bsc.TransactionListener
 }
 
 // ComplianceModule encapsulates compliance operations
 type ComplianceModule struct {
-	Service *service.ComplianceService
+	Service complianceService.ComplianceService
 }
 
 // LedgerModule encapsulates accounting operations
 type LedgerModule struct {
-	Service *service.LedgerService
+	Service *ledgerService.LedgerService
 }
 
 // NotificationModule encapsulates notification delivery
 type NotificationModule struct {
-	Service *service.NotificationService
+	Service *notificationService.NotificationService
 }
 
 // TreasuryModule encapsulates treasury operations
@@ -103,20 +107,20 @@ type InfrastructureModule struct {
 type RegistryConfig struct {
 	// Services (initialized elsewhere)
 	PaymentService      *paymentService.PaymentService
-	MerchantService     *service.MerchantService
-	PayoutService       *service.PayoutService
-	ComplianceService   *service.ComplianceService
-	LedgerService       *service.LedgerService
-	NotificationService *service.NotificationService
+	MerchantService     *merchantService.MerchantService
+	PayoutService       *payoutService.PayoutService
+	ComplianceService   complianceService.ComplianceService
+	LedgerService       *ledgerService.LedgerService
+	NotificationService *notificationService.NotificationService
 
 	// Handlers
 	PaymentHandler  *paymentHandler.PaymentHandler
-	MerchantHandler *handler.MerchantHandler
-	PayoutHandler   *handler.PayoutHandler
+	MerchantHandler *merchantHandler.MerchantHandler
+	PayoutHandler   *payoutHandler.PayoutHandler
 
 	// Blockchain
-	SolanaListener *solana.Listener
-	BSCListener    *bsc.Listener
+	SolanaListener *solana.TransactionListener
+	BSCListener    *bsc.TransactionListener
 
 	// Infrastructure
 	EventBus events.EventBus

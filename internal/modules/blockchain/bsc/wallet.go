@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/shopspring/decimal"
 )
@@ -140,8 +140,7 @@ func (w *Wallet) GetBEP20Balance(ctx context.Context, tokenContract common.Addre
 	data = append(data, paddedAddress...)
 
 	// Create call message
-	msg := common.Address{}
-	result, err := w.client.GetEthClient().CallContract(ctx, callMsg{
+	result, err := w.client.GetEthClient().CallContract(ctx, ethereum.CallMsg{
 		To:   &tokenContract,
 		Data: data,
 	}, nil)
@@ -175,7 +174,7 @@ func (w *Wallet) GetBEP20Decimals(ctx context.Context, tokenContract common.Addr
 	// Method ID: 0x313ce567
 	data := []byte{0x31, 0x3c, 0xe5, 0x67}
 
-	result, err := w.client.GetEthClient().CallContract(ctx, callMsg{
+	result, err := w.client.GetEthClient().CallContract(ctx, ethereum.CallMsg{
 		To:   &tokenContract,
 		Data: data,
 	}, nil)
@@ -225,23 +224,6 @@ func ParseAddress(address string) (common.Address, error) {
 	}
 	return common.HexToAddress(address), nil
 }
-
-// callMsg is a helper struct for calling contracts
-type callMsg struct {
-	To   *common.Address
-	Data []byte
-}
-
-// Implement the ethereum.CallMsg interface
-func (m callMsg) From() common.Address         { return common.Address{} }
-func (m callMsg) To() *common.Address          { return m.To }
-func (m callMsg) Gas() uint64                  { return 0 }
-func (m callMsg) GasPrice() *big.Int           { return nil }
-func (m callMsg) GasFeeCap() *big.Int          { return nil }
-func (m callMsg) GasTipCap() *big.Int          { return nil }
-func (m callMsg) Value() *big.Int              { return big.NewInt(0) }
-func (m callMsg) Data() []byte                 { return m.Data }
-func (m callMsg) AccessList() types.AccessList { return nil }
 
 // Note: For sending transactions (not needed for listener, but for future implementation)
 // You would implement SendBEP20Transfer, SendBNB, etc. methods here

@@ -6,7 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
+	notificationService "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,7 +22,7 @@ type PaymentRepositoryInterface interface {
 type ComplianceAlertService struct {
 	repo                *repository.ComplianceAlertRepository
 	paymentRepo         PaymentRepositoryInterface
-	notificationService *NotificationService
+	notificationService *notificationService.NotificationService
 	logger              *logrus.Logger
 	opsTeamEmails       []string // Email addresses for compliance team
 }
@@ -30,7 +31,7 @@ type ComplianceAlertService struct {
 type ComplianceAlertServiceConfig struct {
 	ComplianceAlertRepo *repository.ComplianceAlertRepository
 	PaymentRepo         PaymentRepositoryInterface
-	NotificationService *NotificationService
+	NotificationService *notificationService.NotificationService
 	Logger              *logrus.Logger
 	OpsTeamEmails       []string
 }

@@ -9,8 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
 
-	"stable_payment_gateway/internal/modules/blockchain/bsc"
-	"stable_payment_gateway/internal/ports"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/bsc"
+	"github.com/hxuan190/stable_payment_gateway/internal/ports"
 )
 
 // BSCListenerAdapter adapts the existing BSC TransactionListener to implement BlockchainListener interface
@@ -29,11 +29,11 @@ type BSCListenerAdapter struct {
 	handlerMu           sync.RWMutex
 
 	// Health tracking
-	health           ports.ListenerHealth
-	healthMu         sync.RWMutex
-	lastActivity     time.Time
-	errorCount       uint64
-	successCount     uint64
+	health       ports.ListenerHealth
+	healthMu     sync.RWMutex
+	lastActivity time.Time
+	errorCount   uint64
+	successCount uint64
 }
 
 // NewBSCListenerAdapter creates a new BSC blockchain listener adapter
@@ -43,13 +43,15 @@ func NewBSCListenerAdapter(config ports.BlockchainListenerConfig) (*BSCListenerA
 	}
 
 	// Create BSC client
-	client, err := bsc.NewClient(config.RPCURL)
+	client, err := bsc.NewClient(bsc.ClientConfig{
+		RPCURL: config.RPCURL,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BSC client: %w", err)
 	}
 
 	// Create wallet from private key
-	wallet, err := bsc.NewWalletFromPrivateKey(config.WalletPrivateKey)
+	wallet, err := bsc.LoadWallet(config.WalletPrivateKey, config.RPCURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}

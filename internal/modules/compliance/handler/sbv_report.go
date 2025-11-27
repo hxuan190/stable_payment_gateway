@@ -9,7 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 )
 
 // SBVReportHandler handles SBV (State Bank of Vietnam) regulatory report endpoints

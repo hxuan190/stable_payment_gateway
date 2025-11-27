@@ -3,12 +3,13 @@ package treasury
 import (
 	"database/sql"
 
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/treasury/repository"
 	"github.com/sirupsen/logrus"
 )
 
 type Module struct {
-	WalletRepo    *TreasuryWalletRepository
-	OperationRepo *TreasuryOperationRepository
+	WalletRepo    *repository.TreasuryWalletRepository
+	OperationRepo *repository.TreasuryOperationRepository
 	logger        *logrus.Logger
 }
 
@@ -18,8 +19,8 @@ type Config struct {
 }
 
 func NewModule(cfg Config) (*Module, error) {
-	walletRepo := NewTreasuryWalletRepository(cfg.DB)
-	operationRepo := NewTreasuryOperationRepository(cfg.DB)
+	walletRepo := repository.NewTreasuryWalletRepository(cfg.DB)
+	operationRepo := repository.NewTreasuryOperationRepository(cfg.DB)
 
 	cfg.Logger.Info("Treasury module initialized")
 

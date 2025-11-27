@@ -134,8 +134,8 @@ func decodeMemoFromBytes(data []byte) (string, error) {
 			if length.IsInt64() {
 				l := length.Int64()
 				dataStart := lengthStart + 32
-				if len(data) >= int(dataStart+l) {
-					memoBytes := data[dataStart : dataStart+l]
+				if len(data) >= int(dataStart)+int(l) {
+					memoBytes := data[dataStart : int(dataStart)+int(l)]
 					memo := string(memoBytes)
 					if isPrintable(memo) {
 						return memo, nil

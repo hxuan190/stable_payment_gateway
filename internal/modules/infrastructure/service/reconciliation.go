@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	infrastructureRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
+	ledgerRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
+	ledgerService "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/shopspring/decimal"
 )
 
@@ -16,10 +18,10 @@ import (
 type ReconciliationStatus string
 
 const (
-	ReconciliationStatusBalanced   ReconciliationStatus = "balanced"   // Assets == Liabilities (within tolerance)
-	ReconciliationStatusSurplus    ReconciliationStatus = "surplus"    // Assets > Liabilities (good)
-	ReconciliationStatusDeficit    ReconciliationStatus = "deficit"    // Assets < Liabilities (CRITICAL)
-	ReconciliationStatusError      ReconciliationStatus = "error"      // Reconciliation failed
+	ReconciliationStatusBalanced   ReconciliationStatus = "balanced"    // Assets == Liabilities (within tolerance)
+	ReconciliationStatusSurplus    ReconciliationStatus = "surplus"     // Assets > Liabilities (good)
+	ReconciliationStatusDeficit    ReconciliationStatus = "deficit"     // Assets < Liabilities (CRITICAL)
+	ReconciliationStatusError      ReconciliationStatus = "error"       // Reconciliation failed
 	ReconciliationStatusInProgress ReconciliationStatus = "in_progress" // Currently running
 )
 
@@ -29,20 +31,20 @@ const ReconciliationToleranceVND = 1000
 // ReconciliationService handles daily solvency checks and audits
 type ReconciliationService struct {
 	db                  *sql.DB
-	ledgerService       *LedgerService
+	ledgerService       *ledgerService.LedgerService
 	exchangeRateService *ExchangeRateService
-	reconciliationRepo  *repository.ReconciliationRepository
-	balanceRepo         *repository.BalanceRepository
+	reconciliationRepo  *infrastructureRepository.ReconciliationRepository
+	balanceRepo         *ledgerRepository.BalanceRepository
 	logger              *logger.Logger
 }
 
 // NewReconciliationService creates a new reconciliation service
 func NewReconciliationService(
 	db *sql.DB,
-	ledgerService *LedgerService,
+	ledgerService *ledgerService.LedgerService,
 	exchangeRateService *ExchangeRateService,
-	reconciliationRepo *repository.ReconciliationRepository,
-	balanceRepo *repository.BalanceRepository,
+	reconciliationRepo *infrastructureRepository.ReconciliationRepository,
+	balanceRepo *ledgerRepository.BalanceRepository,
 	logger *logger.Logger,
 ) *ReconciliationService {
 	return &ReconciliationService{
@@ -59,9 +61,10 @@ func NewReconciliationService(
 // This verifies that the system is solvent: Assets >= Liabilities
 //
 // Formula:
-//   Assets = Hot Wallet Crypto (converted to VND) + VND Pool + Fee Revenue
-//   Liabilities = Sum of all merchant balances (available + pending + reserved)
-//   Difference = Assets - Liabilities
+//
+//	Assets = Hot Wallet Crypto (converted to VND) + VND Pool + Fee Revenue
+//	Liabilities = Sum of all merchant balances (available + pending + reserved)
+//	Difference = Assets - Liabilities
 //
 // Status:
 //   - Deficit (< -tolerance): CRITICAL - System is insolvent
@@ -204,7 +207,7 @@ func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decim
 	totalAssets := decimal.Zero
 
 	// 1. Get crypto holdings from ledger (crypto_pool account)
-	cryptoPoolBalance, err := s.ledgerService.GetAccountBalance(AccountCryptoPool)
+	cryptoPoolBalance, err := s.ledgerService.GetAccountBalance(ledgerService.AccountCryptoPool)
 	if err != nil {
 		s.logger.Warn("Failed to get crypto pool balance, assuming zero", map[string]interface{}{
 			"error": err.Error(),
@@ -220,7 +223,7 @@ func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decim
 	totalAssets = totalAssets.Add(cryptoVND)
 
 	// 2. Get VND pool (cash holdings from OTC conversions)
-	vndPoolBalance, err := s.ledgerService.GetAccountBalance(AccountVNDPool)
+	vndPoolBalance, err := s.ledgerService.GetAccountBalance(ledgerService.AccountVNDPool)
 	if err != nil {
 		s.logger.Warn("Failed to get VND pool balance, assuming zero", map[string]interface{}{
 			"error": err.Error(),
@@ -231,7 +234,7 @@ func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decim
 	totalAssets = totalAssets.Add(vndPoolBalance)
 
 	// 3. Get fee revenue (accumulated fees)
-	feeRevenue, err := s.ledgerService.GetAccountBalance(AccountFeeRevenue)
+	feeRevenue, err := s.ledgerService.GetAccountBalance(ledgerService.AccountFeeRevenue)
 	if err != nil {
 		s.logger.Warn("Failed to get fee revenue, assuming zero", map[string]interface{}{
 			"error": err.Error(),
@@ -242,7 +245,7 @@ func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decim
 	totalAssets = totalAssets.Add(feeRevenue)
 
 	// 4. Get OTC spread revenue
-	otcSpread, err := s.ledgerService.GetAccountBalance(AccountOTCSpread)
+	otcSpread, err := s.ledgerService.GetAccountBalance(ledgerService.AccountOTCSpread)
 	if err != nil {
 		s.logger.Warn("Failed to get OTC spread, assuming zero", map[string]interface{}{
 			"error": err.Error(),
@@ -253,7 +256,7 @@ func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decim
 	totalAssets = totalAssets.Add(otcSpread)
 
 	// 5. Subtract expenses
-	otcExpense, err := s.ledgerService.GetAccountBalance(AccountOTCExpense)
+	otcExpense, err := s.ledgerService.GetAccountBalance(ledgerService.AccountOTCExpense)
 	if err != nil {
 		s.logger.Warn("Failed to get OTC expense, assuming zero", map[string]interface{}{
 			"error": err.Error(),
@@ -263,7 +266,7 @@ func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decim
 	breakdown["otc_expense"] = otcExpense.String()
 	totalAssets = totalAssets.Sub(otcExpense)
 
-	payoutExpense, err := s.ledgerService.GetAccountBalance(AccountPayoutExpense)
+	payoutExpense, err := s.ledgerService.GetAccountBalance(ledgerService.AccountPayoutExpense)
 	if err != nil {
 		s.logger.Warn("Failed to get payout expense, assuming zero", map[string]interface{}{
 			"error": err.Error(),
@@ -274,7 +277,7 @@ func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decim
 	totalAssets = totalAssets.Sub(payoutExpense)
 
 	// 6. Get platform bank account balance (if tracked)
-	platformBank, err := s.ledgerService.GetAccountBalance(AccountPlatformBank)
+	platformBank, err := s.ledgerService.GetAccountBalance(ledgerService.AccountPlatformBank)
 	if err != nil {
 		s.logger.Warn("Failed to get platform bank balance, assuming zero", map[string]interface{}{
 			"error": err.Error(),

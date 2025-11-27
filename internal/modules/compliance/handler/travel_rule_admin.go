@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,9 +9,9 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
 )
 
 // TravelRuleAdminHandler handles admin endpoints for Travel Rule compliance
@@ -40,40 +39,40 @@ func NewTravelRuleAdminHandler(
 type RegulatoryReportRequest struct {
 	StartDate string  `json:"start_date" binding:"required"` // Format: YYYY-MM-DD
 	EndDate   string  `json:"end_date" binding:"required"`   // Format: YYYY-MM-DD
-	MinAmount *string `json:"min_amount,omitempty"`         // Minimum transaction amount
-	Country   *string `json:"country,omitempty"`            // Filter by country (payer or merchant)
+	MinAmount *string `json:"min_amount,omitempty"`          // Minimum transaction amount
+	Country   *string `json:"country,omitempty"`             // Filter by country (payer or merchant)
 }
 
 // RegulatoryReportResponse represents a regulatory compliance report
 type RegulatoryReportResponse struct {
-	ReportID       string                      `json:"report_id"`
-	GeneratedAt    string                      `json:"generated_at"`
-	PeriodStart    string                      `json:"period_start"`
-	PeriodEnd      string                      `json:"period_end"`
-	TotalRecords   int                         `json:"total_records"`
-	CrossBorder    int                         `json:"cross_border_count"`
-	HighRisk       int                         `json:"high_risk_count"`
-	Reported       int                         `json:"reported_count"`
-	TotalVolume    string                      `json:"total_volume_usd"`
-	Transactions   []RegulatoryTransactionItem `json:"transactions"`
+	ReportID     string                      `json:"report_id"`
+	GeneratedAt  string                      `json:"generated_at"`
+	PeriodStart  string                      `json:"period_start"`
+	PeriodEnd    string                      `json:"period_end"`
+	TotalRecords int                         `json:"total_records"`
+	CrossBorder  int                         `json:"cross_border_count"`
+	HighRisk     int                         `json:"high_risk_count"`
+	Reported     int                         `json:"reported_count"`
+	TotalVolume  string                      `json:"total_volume_usd"`
+	Transactions []RegulatoryTransactionItem `json:"transactions"`
 }
 
 // RegulatoryTransactionItem represents a transaction in the regulatory report
 type RegulatoryTransactionItem struct {
 	// Originator (Payer) Information
-	OriginatorName      string  `json:"originator_name"`
-	OriginatorWallet    string  `json:"originator_wallet"`
-	OriginatorCountry   string  `json:"originator_country"`
-	OriginatorID        *string `json:"originator_id,omitempty"`
-	OriginatorAddress   *string `json:"originator_address,omitempty"`
+	OriginatorName    string  `json:"originator_name"`
+	OriginatorWallet  string  `json:"originator_wallet"`
+	OriginatorCountry string  `json:"originator_country"`
+	OriginatorID      *string `json:"originator_id,omitempty"`
+	OriginatorAddress *string `json:"originator_address,omitempty"`
 
 	// Beneficiary (Merchant) Information
-	BeneficiaryName         string  `json:"beneficiary_name"`
-	BeneficiaryWallet       *string `json:"beneficiary_wallet,omitempty"`
-	BeneficiaryCountry      string  `json:"beneficiary_country"`
-	BeneficiaryID           *string `json:"beneficiary_id,omitempty"`
-	BeneficiaryBusinessReg  *string `json:"beneficiary_business_reg,omitempty"`
-	BeneficiaryAddress      *string `json:"beneficiary_address,omitempty"`
+	BeneficiaryName        string  `json:"beneficiary_name"`
+	BeneficiaryWallet      *string `json:"beneficiary_wallet,omitempty"`
+	BeneficiaryCountry     string  `json:"beneficiary_country"`
+	BeneficiaryID          *string `json:"beneficiary_id,omitempty"`
+	BeneficiaryBusinessReg *string `json:"beneficiary_business_reg,omitempty"`
+	BeneficiaryAddress     *string `json:"beneficiary_address,omitempty"`
 
 	// Transaction Details
 	TransactionDate     string  `json:"transaction_date"`
@@ -83,12 +82,12 @@ type RegulatoryTransactionItem struct {
 	PaymentID           string  `json:"payment_id"`
 
 	// Risk & Compliance
-	IsCrossBorder       bool    `json:"is_cross_border"`
-	RiskLevel           *string `json:"risk_level,omitempty"`
+	IsCrossBorder       bool     `json:"is_cross_border"`
+	RiskLevel           *string  `json:"risk_level,omitempty"`
 	RiskScore           *float64 `json:"risk_score,omitempty"`
-	ScreeningStatus     *string `json:"screening_status,omitempty"`
-	ReportedToAuthority bool    `json:"reported_to_authority"`
-	ReportReference     *string `json:"report_reference,omitempty"`
+	ScreeningStatus     *string  `json:"screening_status,omitempty"`
+	ReportedToAuthority bool     `json:"reported_to_authority"`
+	ReportReference     *string  `json:"report_reference,omitempty"`
 }
 
 // GetRegulatoryReport handles POST /api/v1/admin/travel-rule/report
@@ -227,16 +226,16 @@ func (h *TravelRuleAdminHandler) GetRegulatoryReport(c *gin.Context) {
 	reportID := fmt.Sprintf("TR-%s-%s-%d", startDate.Format("20060102"), endDate.Format("20060102"), time.Now().Unix())
 
 	response := RegulatoryReportResponse{
-		ReportID:       reportID,
-		GeneratedAt:    time.Now().Format(time.RFC3339),
-		PeriodStart:    req.StartDate,
-		PeriodEnd:      req.EndDate,
-		TotalRecords:   totalRecords,
-		CrossBorder:    crossBorder,
-		HighRisk:       highRisk,
-		Reported:       reported,
-		TotalVolume:    totalVolume.String(),
-		Transactions:   transactions,
+		ReportID:     reportID,
+		GeneratedAt:  time.Now().Format(time.RFC3339),
+		PeriodStart:  req.StartDate,
+		PeriodEnd:    req.EndDate,
+		TotalRecords: totalRecords,
+		CrossBorder:  crossBorder,
+		HighRisk:     highRisk,
+		Reported:     reported,
+		TotalVolume:  totalVolume.String(),
+		Transactions: transactions,
 	}
 
 	h.logger.Info("Regulatory report generated", map[string]interface{}{
@@ -448,18 +447,18 @@ func (h *TravelRuleAdminHandler) GetComplianceStatistics(c *gin.Context) {
 
 // ComplianceStatisticsResponse represents compliance statistics
 type ComplianceStatisticsResponse struct {
-	Period         string                         `json:"period"`
-	TotalRecords   int                            `json:"total_records"`
-	CrossBorder    int                            `json:"cross_border_count"`
-	CrossBorderPct float64                        `json:"cross_border_percentage"`
-	HighRisk       int                            `json:"high_risk_count"`
-	HighRiskPct    float64                        `json:"high_risk_percentage"`
-	Reported       int                            `json:"reported_count"`
-	ReportedPct    float64                        `json:"reported_percentage"`
-	TotalVolume    string                         `json:"total_volume_usd"`
-	ByCountry      map[string]CountryStatistics   `json:"by_country"`
-	ByRiskLevel    map[string]int                 `json:"by_risk_level"`
-	ByPurpose      map[string]int                 `json:"by_purpose"`
+	Period         string                       `json:"period"`
+	TotalRecords   int                          `json:"total_records"`
+	CrossBorder    int                          `json:"cross_border_count"`
+	CrossBorderPct float64                      `json:"cross_border_percentage"`
+	HighRisk       int                          `json:"high_risk_count"`
+	HighRiskPct    float64                      `json:"high_risk_percentage"`
+	Reported       int                          `json:"reported_count"`
+	ReportedPct    float64                      `json:"reported_percentage"`
+	TotalVolume    string                       `json:"total_volume_usd"`
+	ByCountry      map[string]CountryStatistics `json:"by_country"`
+	ByRiskLevel    map[string]int               `json:"by_risk_level"`
+	ByPurpose      map[string]int               `json:"by_purpose"`
 }
 
 // CountryStatistics represents statistics for a specific country
@@ -589,36 +588,4 @@ func (h *TravelRuleAdminHandler) modelToResponse(data *model.TravelRuleData) *Tr
 		CreatedAt:       data.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:       data.UpdatedAt.Format(time.RFC3339),
 	}
-}
-
-// Helper functions
-func fromNullString(ns sql.NullString) *string {
-	if !ns.Valid {
-		return nil
-	}
-	return &ns.String
-}
-
-func fromNullTime(nt sql.NullTime) *string {
-	if !nt.Valid {
-		return nil
-	}
-	str := nt.Time.Format("2006-01-02")
-	return &str
-}
-
-func fromNullTimeString(nt sql.NullTime) *string {
-	if !nt.Valid {
-		return nil
-	}
-	str := nt.Time.Format(time.RFC3339)
-	return &str
-}
-
-func fromNullDecimal(nd decimal.NullDecimal) *float64 {
-	if !nd.Valid {
-		return nil
-	}
-	f, _ := nd.Decimal.Float64()
-	return &f
 }

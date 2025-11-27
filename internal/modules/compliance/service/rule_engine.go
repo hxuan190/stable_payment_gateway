@@ -10,19 +10,19 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	complianceRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 )
 
 type RuleEngine struct {
-	ruleRepo    *repository.AMLRuleRepository
+	ruleRepo    *complianceRepository.AMLRuleRepository
 	paymentRepo paymentdomain.PaymentRepository
 	logger      *logger.Logger
 }
 
 func NewRuleEngine(
-	ruleRepo *repository.AMLRuleRepository,
+	ruleRepo *complianceRepository.AMLRuleRepository,
 	paymentRepo paymentdomain.PaymentRepository,
 	logger *logger.Logger,
 ) *RuleEngine {

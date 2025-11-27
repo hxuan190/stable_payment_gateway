@@ -10,10 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"stable_payment_gateway/internal/ports"
+	"github.com/hxuan190/stable_payment_gateway/internal/ports"
 )
 
 // OneFinSettlementAdapter implements the SettlementProvider interface for OneFin API-based settlements
@@ -26,8 +25,8 @@ type OneFinSettlementAdapter struct {
 	httpClient *http.Client
 
 	// Exchange rate cache
-	rateCache      *ports.ExchangeRateQuote
-	rateCacheMu    sync.RWMutex
+	rateCache       *ports.ExchangeRateQuote
+	rateCacheMu     sync.RWMutex
 	rateCacheExpiry time.Time
 
 	// Health tracking
@@ -48,14 +47,14 @@ type OneFinSettlementRequest struct {
 
 // OneFinSettlementResponse represents the response from OneFin API
 type OneFinSettlementResponse struct {
-	Success         bool    `json:"success"`
-	SettlementID    string  `json:"settlement_id"`
-	Status          string  `json:"status"`
-	AmountVND       float64 `json:"amount_vnd"`
-	ExchangeRate    float64 `json:"exchange_rate"`
-	Fee             float64 `json:"fee"`
-	EstimatedTime   int     `json:"estimated_time_minutes"`
-	ErrorMessage    string  `json:"error_message,omitempty"`
+	Success       bool    `json:"success"`
+	SettlementID  string  `json:"settlement_id"`
+	Status        string  `json:"status"`
+	AmountVND     float64 `json:"amount_vnd"`
+	ExchangeRate  float64 `json:"exchange_rate"`
+	Fee           float64 `json:"fee"`
+	EstimatedTime int     `json:"estimated_time_minutes"`
+	ErrorMessage  string  `json:"error_message,omitempty"`
 }
 
 // OneFinExchangeRateResponse represents the exchange rate response from OneFin API
@@ -157,7 +156,7 @@ func (a *OneFinSettlementAdapter) InitiateSettlement(ctx context.Context, reques
 		Fee:                 decimal.NewFromFloat(oneFinResp.Fee),
 		InitiatedAt:         now,
 		Metadata: map[string]interface{}{
-			"onefin_settlement_id": oneFinResp.SettlementID,
+			"onefin_settlement_id":   oneFinResp.SettlementID,
 			"estimated_time_minutes": oneFinResp.EstimatedTime,
 		},
 	}

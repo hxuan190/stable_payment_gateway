@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"stable_payment_gateway/internal/ports"
+	"github.com/hxuan190/stable_payment_gateway/internal/ports"
 )
 
 // ManualSettlementAdapter implements the SettlementProvider interface for manual OTC settlements

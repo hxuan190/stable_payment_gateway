@@ -104,12 +104,12 @@ func (s *NotificationService) SendWebhook(
 		deliveryAttempt, err := s.sendWebhookAttempt(ctx, webhookURL, webhookSecret, payload, attempt)
 
 		s.logger.WithFields(logrus.Fields{
-			"url":          webhookURL,
-			"event":        event,
-			"attempt":      attempt,
-			"status_code":  deliveryAttempt.StatusCode,
-			"duration_ms":  deliveryAttempt.Duration.Milliseconds(),
-			"error":        err,
+			"url":         webhookURL,
+			"event":       event,
+			"attempt":     attempt,
+			"status_code": deliveryAttempt.StatusCode,
+			"duration_ms": deliveryAttempt.Duration.Milliseconds(),
+			"error":       err,
 		}).Info("Webhook delivery attempt")
 
 		if err == nil && deliveryAttempt.StatusCode >= 200 && deliveryAttempt.StatusCode < 300 {
@@ -226,10 +226,10 @@ func (s *NotificationService) sendWebhookAttempt(
 	// Log response for debugging (only for non-2xx responses)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		s.logger.WithFields(logrus.Fields{
-			"url":          webhookURL,
-			"status_code":  resp.StatusCode,
-			"response":     string(respBody),
-			"attempt":      attempt,
+			"url":         webhookURL,
+			"status_code": resp.StatusCode,
+			"response":    string(respBody),
+			"attempt":     attempt,
 		}).Warn("Webhook returned non-success status code")
 	}
 
@@ -264,9 +264,9 @@ const (
 
 // EmailData represents data for email templates
 type EmailData struct {
-	To          string
-	Subject     string
-	TemplateID  string
+	To           string
+	Subject      string
+	TemplateID   string
 	TemplateData map[string]interface{}
 }
 
@@ -277,10 +277,10 @@ func (s *NotificationService) SendEmail(ctx context.Context, emailType EmailType
 	// In production, integrate with SendGrid, AWS SES, or other email service
 
 	s.logger.WithFields(logrus.Fields{
-		"type":      emailType,
-		"to":        to,
-		"data":      data,
-		"sender":    s.emailSender,
+		"type":   emailType,
+		"to":     to,
+		"data":   data,
+		"sender": s.emailSender,
 	}).Info("Email notification (MVP: logging only, not actually sent)")
 
 	// TODO: Implement actual email sending when email service is configured
@@ -346,4 +346,28 @@ func (s *NotificationService) SendKYCRejectedEmail(ctx context.Context, merchant
 		"timestamp":   time.Now().Format(time.RFC3339),
 	}
 	return s.SendEmail(ctx, EmailTypeKYCRejected, merchantEmail, data)
+}
+
+// SendComplianceAlertEmail sends compliance alert notification to ops team
+func (s *NotificationService) SendComplianceAlertEmail(ctx context.Context, recipients []string, alertType string, merchantID string, details string, requiredAction string) error {
+	data := map[string]interface{}{
+		"alert_type":      alertType,
+		"merchant_id":     merchantID,
+		"details":         details,
+		"required_action": requiredAction,
+		"timestamp":       time.Now().Format(time.RFC3339),
+	}
+
+	for _, recipient := range recipients {
+		if err := s.SendEmail(ctx, EmailType("compliance_alert"), recipient, data); err != nil {
+			s.logger.WithFields(logrus.Fields{
+				"recipient":   recipient,
+				"alert_type":  alertType,
+				"merchant_id": merchantID,
+			}).WithError(err).Error("Failed to send compliance alert email")
+			return err
+		}
+	}
+
+	return nil
 }

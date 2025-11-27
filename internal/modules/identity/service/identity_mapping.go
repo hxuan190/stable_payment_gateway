@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/identity/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 	"github.com/shopspring/decimal"
 )
 

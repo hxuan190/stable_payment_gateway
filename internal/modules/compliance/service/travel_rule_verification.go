@@ -14,8 +14,8 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 )
 
 var (

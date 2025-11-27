@@ -10,8 +10,12 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	auditRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/audit/repository"
+	complianceRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
+	infrastructureRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
+	merchantRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
 )
 
 var (
@@ -44,35 +48,35 @@ type ComplianceService interface {
 
 // ComplianceMetrics represents compliance metrics for a merchant
 type ComplianceMetrics struct {
-	MerchantID           string
-	KYCTier              string
-	MonthlyLimitUSD      decimal.Decimal
-	MonthlyVolumeUSD     decimal.Decimal
-	RemainingLimitUSD    decimal.Decimal
-	UtilizationPercent   float64
+	MerchantID             string
+	KYCTier                string
+	MonthlyLimitUSD        decimal.Decimal
+	MonthlyVolumeUSD       decimal.Decimal
+	RemainingLimitUSD      decimal.Decimal
+	UtilizationPercent     float64
 	TravelRuleTransactions int64
-	TotalTransactions    int64
-	LastScreeningDate    *time.Time
+	TotalTransactions      int64
+	LastScreeningDate      *time.Time
 }
 
 type complianceServiceImpl struct {
-	amlService          AMLService
-	merchantRepo        repository.MerchantRepository
-	travelRuleRepo      repository.TravelRuleRepository
-	kycDocumentRepo     repository.KYCDocumentRepository
-	paymentRepo         repository.PaymentRepository
-	auditRepo           *repository.AuditRepository  // Fixed: correct repository type
-	logger              *logger.Logger
+	amlService      AMLService
+	merchantRepo    *merchantRepository.MerchantRepository
+	travelRuleRepo  complianceRepository.TravelRuleRepository
+	kycDocumentRepo infrastructureRepository.KYCDocumentRepository
+	paymentRepo     paymentDomain.PaymentRepository
+	auditRepo       *auditRepository.AuditRepository
+	logger          *logger.Logger
 }
 
 // NewComplianceService creates a new compliance service
 func NewComplianceService(
 	amlService AMLService,
-	merchantRepo repository.MerchantRepository,
-	travelRuleRepo repository.TravelRuleRepository,
-	kycDocumentRepo repository.KYCDocumentRepository,
-	paymentRepo repository.PaymentRepository,
-	auditRepo *repository.AuditRepository,  // Fixed: correct repository type
+	merchantRepo *merchantRepository.MerchantRepository,
+	travelRuleRepo complianceRepository.TravelRuleRepository,
+	kycDocumentRepo infrastructureRepository.KYCDocumentRepository,
+	paymentRepo paymentDomain.PaymentRepository,
+	auditRepo *auditRepository.AuditRepository,
 	logger *logger.Logger,
 ) ComplianceService {
 	return &complianceServiceImpl{
@@ -118,8 +122,8 @@ func (s *complianceServiceImpl) ValidatePaymentCompliance(
 	if amountUSD.GreaterThan(travelRuleThreshold) {
 		if travelRuleData == nil {
 			s.logger.Warn("Travel Rule data missing for high-value transaction", map[string]interface{}{
-				"payment_id":  payment.ID,
-				"amount_usd":  amountUSD.String(),
+				"payment_id": payment.ID,
+				"amount_usd": amountUSD.String(),
 			})
 			return ErrTravelRuleRequired
 		}
@@ -188,11 +192,11 @@ func (s *complianceServiceImpl) CheckMonthlyLimit(ctx context.Context, merchantI
 	if newTotal.GreaterThan(merchant.MonthlyLimitUSD) {
 		remaining := merchant.MonthlyLimitUSD.Sub(merchant.TotalVolumeThisMonthUSD)
 		s.logger.Warn("Monthly limit would be exceeded", map[string]interface{}{
-			"merchant_id":       merchantID,
-			"current_volume":    merchant.TotalVolumeThisMonthUSD.String(),
-			"monthly_limit":     merchant.MonthlyLimitUSD.String(),
-			"requested_amount":  amountUSD.String(),
-			"remaining_limit":   remaining.String(),
+			"merchant_id":      merchantID,
+			"current_volume":   merchant.TotalVolumeThisMonthUSD.String(),
+			"monthly_limit":    merchant.MonthlyLimitUSD.String(),
+			"requested_amount": amountUSD.String(),
+			"remaining_limit":  remaining.String(),
 		})
 		return ErrMonthlyLimitExceeded
 	}
@@ -219,12 +223,12 @@ func (s *complianceServiceImpl) StoreTravelRuleData(ctx context.Context, data *m
 
 	// Log audit trail
 	auditLog := &model.AuditLog{
-		ID:             uuid.New().String(),  // Fixed: convert UUID to string
+		ID:             uuid.New().String(), // Fixed: convert UUID to string
 		ActorType:      model.ActorTypeSystem,
 		Action:         "travel_rule_stored",
 		ActionCategory: model.ActionCategoryPayment,
 		ResourceType:   "payment",
-		ResourceID:     data.PaymentID,  // Fixed: PaymentID is already a string
+		ResourceID:     data.PaymentID, // Fixed: PaymentID is already a string
 		Status:         model.AuditStatusSuccess,
 		Metadata: map[string]interface{}{
 			"payer_country":      data.PayerCountry,
@@ -235,14 +239,14 @@ func (s *complianceServiceImpl) StoreTravelRuleData(ctx context.Context, data *m
 		CreatedAt: time.Now(),
 	}
 
-	if err := s.auditRepo.Create(auditLog); err != nil {  // Fixed: removed ctx parameter
+	if err := s.auditRepo.Create(auditLog); err != nil { // Fixed: removed ctx parameter
 		s.logger.Error("Failed to create audit log for Travel Rule", err, nil)
 		// Don't fail the operation if audit logging fails
 	}
 
 	s.logger.Info("Travel Rule data stored", map[string]interface{}{
-		"payment_id":      data.PaymentID,
-		"payer_country":   data.PayerCountry,
+		"payment_id":       data.PaymentID,
+		"payer_country":    data.PayerCountry,
 		"merchant_country": data.MerchantCountry,
 	})
 
@@ -271,7 +275,7 @@ func (s *complianceServiceImpl) UpgradeKYCTier(ctx context.Context, merchantID s
 	oldTier := merchant.KYCTier
 
 	// Update tier and monthly limit
-	merchant.KYCTier = model.KYCTier(tier)  // Fixed: convert string to KYCTier type
+	merchant.KYCTier = model.KYCTier(tier) // Fixed: convert string to KYCTier type
 	switch tier {
 	case "tier1":
 		merchant.MonthlyLimitUSD = decimal.NewFromInt(5000)
@@ -289,22 +293,22 @@ func (s *complianceServiceImpl) UpgradeKYCTier(ctx context.Context, merchantID s
 
 	// Log audit trail
 	auditLog := &model.AuditLog{
-		ID:             uuid.New().String(),  // Fixed: convert UUID to string
+		ID:             uuid.New().String(), // Fixed: convert UUID to string
 		ActorType:      model.ActorTypeAdmin,
 		Action:         "kyc_tier_upgraded",
 		ActionCategory: model.ActionCategoryKYC,
 		ResourceType:   "merchant",
-		ResourceID:     merchantID,  // Fixed: merchantID is already a string
+		ResourceID:     merchantID, // Fixed: merchantID is already a string
 		Status:         model.AuditStatusSuccess,
 		Metadata: map[string]interface{}{
-			"old_tier":          string(oldTier),  // Fixed: convert KYCTier to string
+			"old_tier":          string(oldTier), // Fixed: convert KYCTier to string
 			"new_tier":          tier,
 			"new_monthly_limit": merchant.MonthlyLimitUSD.String(),
 		},
 		CreatedAt: time.Now(),
 	}
 
-	if err := s.auditRepo.Create(auditLog); err != nil {  // Fixed: removed ctx parameter
+	if err := s.auditRepo.Create(auditLog); err != nil { // Fixed: removed ctx parameter
 		s.logger.Error("Failed to create audit log for tier upgrade", err, nil)
 	}
 
@@ -370,7 +374,7 @@ func (s *complianceServiceImpl) GetKYCDocuments(ctx context.Context, merchantID 
 
 // GetTravelRuleReport generates a Travel Rule compliance report
 func (s *complianceServiceImpl) GetTravelRuleReport(ctx context.Context, startDate, endDate time.Time) ([]*model.TravelRuleData, error) {
-	filter := repository.TravelRuleFilter{
+	filter := complianceRepository.TravelRuleFilter{
 		StartDate: &startDate,
 		EndDate:   &endDate,
 		MinAmount: floatPtr(1000), // Travel Rule threshold
@@ -411,7 +415,7 @@ func (s *complianceServiceImpl) GetComplianceMetrics(ctx context.Context, mercha
 
 	metrics := &ComplianceMetrics{
 		MerchantID:             merchantID,
-		KYCTier:                string(merchant.KYCTier),  // Fixed: convert KYCTier to string
+		KYCTier:                string(merchant.KYCTier), // Fixed: convert KYCTier to string
 		MonthlyLimitUSD:        merchant.MonthlyLimitUSD,
 		MonthlyVolumeUSD:       merchant.TotalVolumeThisMonthUSD,
 		RemainingLimitUSD:      remaining,

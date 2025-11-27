@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 )
 
 type AMLRuleHandler struct {

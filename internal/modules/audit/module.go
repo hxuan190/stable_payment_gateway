@@ -3,11 +3,12 @@ package audit
 import (
 	"database/sql"
 
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/audit/repository"
 	"github.com/sirupsen/logrus"
 )
 
 type Module struct {
-	Repository *AuditRepository
+	Repository *repository.AuditRepository
 	logger     *logrus.Logger
 }
 
@@ -17,7 +18,7 @@ type Config struct {
 }
 
 func NewModule(cfg Config) (*Module, error) {
-	repo := NewAuditRepository(cfg.DB)
+	repo := repository.NewAuditRepository(cfg.DB)
 
 	cfg.Logger.Info("Audit module initialized")
 

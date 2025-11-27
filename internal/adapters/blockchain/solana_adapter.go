@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gagliardetto/solana-go"
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/shopspring/decimal"
 
-	"stable_payment_gateway/internal/modules/blockchain/solana"
-	"stable_payment_gateway/internal/ports"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
+	"github.com/hxuan190/stable_payment_gateway/internal/ports"
 )
 
 // SolanaListenerAdapter adapts the existing Solana TransactionListener to implement BlockchainListener interface
@@ -20,20 +20,20 @@ type SolanaListenerAdapter struct {
 	listener *solana.TransactionListener
 
 	// Configuration
-	config        ports.BlockchainListenerConfig
-	client        *solana.Client
-	wallet        *solana.Wallet
+	config ports.BlockchainListenerConfig
+	client *solana.Client
+	wallet *solana.Wallet
 
 	// Confirmation handler
 	confirmationHandler ports.PaymentConfirmationHandler
 	handlerMu           sync.RWMutex
 
 	// Health tracking
-	health           ports.ListenerHealth
-	healthMu         sync.RWMutex
-	lastActivity     time.Time
-	errorCount       uint64
-	successCount     uint64
+	health       ports.ListenerHealth
+	healthMu     sync.RWMutex
+	lastActivity time.Time
+	errorCount   uint64
+	successCount uint64
 }
 
 // NewSolanaListenerAdapter creates a new Solana blockchain listener adapter
@@ -43,13 +43,15 @@ func NewSolanaListenerAdapter(config ports.BlockchainListenerConfig) (*SolanaLis
 	}
 
 	// Create Solana client
-	client, err := solana.NewClient(config.RPCURL)
+	client, err := solana.NewClient(solana.ClientConfig{
+		RPCURL: config.RPCURL,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Solana client: %w", err)
 	}
 
 	// Create wallet from private key
-	wallet, err := solana.NewWalletFromPrivateKey(config.WalletPrivateKey)
+	wallet, err := solana.LoadWallet(config.WalletPrivateKey, config.RPCURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
@@ -78,7 +80,7 @@ func (a *SolanaListenerAdapter) Start(ctx context.Context) error {
 	// Build supported token mints map
 	supportedTokenMints := make(map[string]solana.TokenMintInfo)
 	for symbol, mintAddress := range a.config.SupportedTokens {
-		pubKey, err := solana.PublicKeyFromString(mintAddress)
+		pubKey, err := sol.PublicKeyFromBase58(mintAddress)
 		if err != nil {
 			return fmt.Errorf("invalid mint address for %s: %w", symbol, err)
 		}

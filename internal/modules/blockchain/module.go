@@ -8,15 +8,15 @@ import (
 )
 
 type Module struct {
-	SolanaListener *solana.Listener
-	BSCListener    *bsc.Listener
+	SolanaListener *solana.TransactionListener
+	BSCListener    *bsc.TransactionListener
 	eventBus       events.EventBus
 	logger         *logrus.Logger
 }
 
 type Config struct {
-	SolanaListener *solana.Listener
-	BSCListener    *bsc.Listener
+	SolanaListener *solana.TransactionListener
+	BSCListener    *bsc.TransactionListener
 	EventBus       events.EventBus
 	Logger         *logrus.Logger
 }

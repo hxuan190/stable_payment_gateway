@@ -10,9 +10,9 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
 )
 
 // TravelRuleHandler handles FATF Travel Rule compliance API endpoints
@@ -200,8 +200,8 @@ func (h *TravelRuleHandler) CreateTravelRuleData(c *gin.Context) {
 	}
 
 	h.logger.Info("Travel Rule data stored successfully", map[string]interface{}{
-		"payment_id":      req.PaymentID,
-		"payer_country":   req.PayerCountry,
+		"payment_id":       req.PaymentID,
+		"payer_country":    req.PayerCountry,
 		"merchant_country": req.MerchantCountry,
 	})
 

@@ -8,8 +8,11 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
-	reconciliationservice "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/service"
+	infrastructurerepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
+	infrastructureservice "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/service"
+	balancerepository "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
 	ledgerrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
+	ledgerservice "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/service"
 	merchantrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
 	notificationservice "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
@@ -31,11 +34,11 @@ type Server struct {
 	solanaWallet          *solana.Wallet
 	paymentService        *paymentservice.PaymentService
 	notificationSvc       *notificationservice.NotificationService
-	reconciliationService *reconciliationservice.ReconciliationService
-	merchantRepo          *merchantrepository.Repository
+	reconciliationService *infrastructureservice.ReconciliationService
+	merchantRepo          *merchantrepository.MerchantRepository
 	paymentRepo           *legacy.PaymentRepositoryLegacyAdapter
-	payoutRepo            *payoutrepository.Repository
-	walletBalanceRepo     *ledgerrepository.BalanceRepository
+	payoutRepo            *payoutrepository.PayoutRepository
+	walletBalanceRepo     *infrastructurerepository.WalletBalanceRepository
 }
 
 // ServerConfig holds configuration for the worker server
@@ -112,20 +115,19 @@ func NewServer(cfg *ServerConfig) *Server {
 	)
 
 	// Initialize repositories
-	merchantRepo := repository.NewMerchantRepository(cfg.DB)
-	payoutRepo := repository.NewPayoutRepository(cfg.DB)
-	ledgerRepo := repository.NewLedgerRepository(cfg.DB)
-	balanceRepo := repository.NewBalanceRepository(cfg.DB)
-	walletBalanceRepo := repository.NewWalletBalanceRepository(cfg.DB)
-	reconciliationRepo := repository.NewReconciliationRepository(cfg.DB)
+	merchantRepo := merchantrepository.NewMerchantRepository(cfg.DB)
+	payoutRepo := payoutrepository.NewPayoutRepository(cfg.DB)
+	ledgerRepo := ledgerrepository.NewLedgerRepository(cfg.DB)
+	balanceRepo := balancerepository.NewBalanceRepository(cfg.DB)
+	walletBalanceRepo := infrastructurerepository.NewWalletBalanceRepository(cfg.DB)
+	reconciliationRepo := infrastructurerepository.NewReconciliationRepository(cfg.DB)
 
 	// Initialize new payment module
 	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(cfg.DB)
 	paymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(newPaymentRepo)
-	merchantAdapter := legacy.NewMerchantRepositoryAdapter(merchantRepo)
 
 	// Initialize services
-	exchangeRateService := service.NewExchangeRateService(
+	exchangeRateService := infrastructureservice.NewExchangeRateService(
 		cfg.ExchangeRatePrimaryAPI,
 		cfg.ExchangeRateSecondaryAPI,
 		cfg.ExchangeRateCacheTTL,
@@ -133,14 +135,14 @@ func NewServer(cfg *ServerConfig) *Server {
 		cfg.Cache,
 		logger.GetLogger().Logger,
 	)
-	ledgerService := service.NewLedgerService(ledgerRepo, balanceRepo, cfg.DB)
-	notificationService := service.NewNotificationService(service.NotificationServiceConfig{
+	ledgerService := ledgerservice.NewLedgerService(ledgerRepo, balanceRepo, cfg.DB)
+	notificationService := notificationservice.NewNotificationService(notificationservice.NotificationServiceConfig{
 		Logger:      logger.GetLogger().Logger,
 		HTTPTimeout: 30 * time.Second,
 	})
 	paymentService := paymentservice.NewPaymentService(
 		newPaymentRepo,
-		merchantAdapter,
+		nil, // merchantAdapter - not needed for worker operations
 		nil,
 		nil,
 		nil,
@@ -154,7 +156,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		},
 		logger.GetLogger().Logger,
 	)
-	reconciliationService := service.NewReconciliationService(
+	reconciliationService := infrastructureservice.NewReconciliationService(
 		cfg.DB,
 		ledgerService,
 		exchangeRateService,

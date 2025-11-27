@@ -7,8 +7,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"stable_payment_gateway/internal/ports"
-	"stable_payment_gateway/internal/shared/events"
+	"github.com/hxuan190/stable_payment_gateway/internal/ports"
+	"github.com/hxuan190/stable_payment_gateway/internal/shared/events"
 )
 
 // ListenerManager manages multiple blockchain listeners
@@ -58,8 +58,8 @@ func (m *ListenerManager) AddListener(listener ports.BlockchainListener) error {
 	m.listeners[blockchainType] = eventBasedListener
 
 	m.logger.WithFields(logrus.Fields{
-		"blockchain":      blockchainType,
-		"wallet_address":  listener.GetWalletAddress(),
+		"blockchain":       blockchainType,
+		"wallet_address":   listener.GetWalletAddress(),
 		"supported_tokens": listener.GetSupportedTokens(),
 	}).Info("Added blockchain listener")
 

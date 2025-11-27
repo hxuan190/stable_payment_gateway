@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/shopspring/decimal"
-	"github.com/sirupsen/logrus"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
 	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/repository"
-	"github.com/hxuan190/stable_payment_gateway/internal/service"
+	walletBalanceRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
+	"github.com/shopspring/decimal"
+	"github.com/sirupsen/logrus"
 )
 
 // WalletMonitorConfig holds configuration for wallet balance monitoring
@@ -43,14 +43,14 @@ func DefaultWalletMonitorConfig() WalletMonitorConfig {
 
 // WalletMonitor monitors hot wallet balances and sends alerts when thresholds are breached
 type WalletMonitor struct {
-	wallet                *Wallet
-	config                WalletMonitorConfig
-	logger                *logrus.Logger
-	notificationService   *service.NotificationService
-	balanceRepo           *repository.WalletBalanceRepository
-	solanaConfig          config.SolanaConfig
-	stopChan              chan struct{}
-	stoppedChan           chan struct{}
+	wallet              *Wallet
+	config              WalletMonitorConfig
+	logger              *logrus.Logger
+	notificationService *service.NotificationService
+	balanceRepo         *walletBalanceRepository.WalletBalanceRepository
+	solanaConfig        config.SolanaConfig
+	stopChan            chan struct{}
+	stoppedChan         chan struct{}
 }
 
 // NewWalletMonitor creates a new wallet balance monitor
@@ -59,7 +59,7 @@ func NewWalletMonitor(
 	config WalletMonitorConfig,
 	logger *logrus.Logger,
 	notificationService *service.NotificationService,
-	balanceRepo *repository.WalletBalanceRepository,
+	balanceRepo *walletBalanceRepository.WalletBalanceRepository,
 	solanaConfig config.SolanaConfig,
 ) *WalletMonitor {
 	if logger == nil {
