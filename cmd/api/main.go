@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/api"
-	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -127,7 +127,7 @@ func main() {
 	logger.Info("Setting up HTTP server...")
 	apiServer := api.NewServer(&api.ServerConfig{
 		Config:       cfg,
-		DB:           db.DB,
+		DB:           db.GetGORM(),
 		Cache:        redisClient,
 		SolanaClient: solanaClient,
 		SolanaWallet: solanaWallet,
