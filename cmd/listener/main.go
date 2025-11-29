@@ -304,7 +304,7 @@ func initializePaymentService(
 	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(db)
 	return paymentservice.NewPaymentService(
 		newPaymentRepo,
-		nil,
+		merchantRepo,
 		nil,
 		nil,
 		nil,

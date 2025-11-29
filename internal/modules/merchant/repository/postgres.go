@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -213,4 +214,33 @@ func (r *MerchantRepository) CountByKYCStatus(status string) (int64, error) {
 	}
 
 	return count, nil
+}
+
+// GetMerchantKYCStatus retrieves the KYC status of a merchant (for payment module)
+func (r *MerchantRepository) GetMerchantKYCStatus(merchantID string) (string, error) {
+	if merchantID == "" {
+		return "", ErrInvalidMerchantID
+	}
+
+	var merchant domain.Merchant
+	if err := r.db.Select("kyc_status").Where("id = ?", merchantID).First(&merchant).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrMerchantNotFound
+		}
+		return "", err
+	}
+
+	return string(merchant.KYCStatus), nil
+}
+
+// UpdateMerchantVolume updates the merchant's monthly volume (for payment module)
+func (r *MerchantRepository) UpdateMerchantVolume(merchantID string, amountUSD decimal.Decimal) error {
+	if merchantID == "" {
+		return ErrInvalidMerchantID
+	}
+
+	return r.db.Model(&domain.Merchant{}).
+		Where("id = ?", merchantID).
+		UpdateColumn("monthly_volume_usd", gorm.Expr("monthly_volume_usd + ?", amountUSD)).
+		Error
 }
