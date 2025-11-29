@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	complianceRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -45,13 +45,13 @@ type RuleEvaluationResult struct {
 	RuleID    string
 	RuleName  string
 	Triggered bool
-	Severity  model.AMLRuleSeverity
-	Actions   []model.RuleAction
+	Severity  domain.AMLRuleSeverity
+	Actions   []domain.RuleAction
 	Reason    string
 }
 
 func (e *RuleEngine) EvaluateVelocityRules(ctx context.Context, evalCtx *RuleEvaluationContext) ([]*RuleEvaluationResult, error) {
-	rules, err := e.ruleRepo.GetEnabledByCategory(ctx, model.AMLRuleCategoryVelocity)
+	rules, err := e.ruleRepo.GetEnabledByCategory(ctx, domain.AMLRuleCategoryVelocity)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get velocity rules: %w", err)
 	}
@@ -83,13 +83,13 @@ func (e *RuleEngine) EvaluateVelocityRules(ctx context.Context, evalCtx *RuleEva
 	return results, nil
 }
 
-func (e *RuleEngine) evaluateVelocityRule(ctx context.Context, rule *model.AMLRule, evalCtx *RuleEvaluationContext) (*RuleEvaluationResult, error) {
-	var conditions model.VelocityRuleConditions
+func (e *RuleEngine) evaluateVelocityRule(ctx context.Context, rule *domain.AMLRule, evalCtx *RuleEvaluationContext) (*RuleEvaluationResult, error) {
+	var conditions domain.VelocityRuleConditions
 	if err := json.Unmarshal(rule.Conditions, &conditions); err != nil {
 		return nil, fmt.Errorf("failed to parse velocity rule conditions: %w", err)
 	}
 
-	var actions []model.RuleAction
+	var actions []domain.RuleAction
 	if err := json.Unmarshal(rule.Actions, &actions); err != nil {
 		return nil, fmt.Errorf("failed to parse rule actions: %w", err)
 	}

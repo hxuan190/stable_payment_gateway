@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	payoutDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/domain"
 )
 
 var (
@@ -24,7 +24,7 @@ func NewPayoutScheduleRepository(db *gorm.DB) *PayoutScheduleRepository {
 	return &PayoutScheduleRepository{db: db}
 }
 
-func (r *PayoutScheduleRepository) Create(schedule *model.PayoutSchedule) error {
+func (r *PayoutScheduleRepository) Create(schedule *payoutDomain.PayoutSchedule) error {
 	if schedule == nil {
 		return errors.New("payout schedule cannot be nil")
 	}
@@ -40,11 +40,11 @@ func (r *PayoutScheduleRepository) Create(schedule *model.PayoutSchedule) error 
 	return r.db.Create(schedule).Error
 }
 
-func (r *PayoutScheduleRepository) GetByID(id uuid.UUID) (*model.PayoutSchedule, error) {
+func (r *PayoutScheduleRepository) GetByID(id uuid.UUID) (*payoutDomain.PayoutSchedule, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("invalid payout schedule ID")
 	}
-	var schedule model.PayoutSchedule
+	var schedule payoutDomain.PayoutSchedule
 	err := r.db.Where("id = ?", id).First(&schedule).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -55,11 +55,11 @@ func (r *PayoutScheduleRepository) GetByID(id uuid.UUID) (*model.PayoutSchedule,
 	return &schedule, nil
 }
 
-func (r *PayoutScheduleRepository) GetByMerchantID(merchantID uuid.UUID) (*model.PayoutSchedule, error) {
+func (r *PayoutScheduleRepository) GetByMerchantID(merchantID uuid.UUID) (*payoutDomain.PayoutSchedule, error) {
 	if merchantID == uuid.Nil {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
-	var schedule model.PayoutSchedule
+	var schedule payoutDomain.PayoutSchedule
 	err := r.db.Where("merchant_id = ?", merchantID).First(&schedule).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -70,7 +70,7 @@ func (r *PayoutScheduleRepository) GetByMerchantID(merchantID uuid.UUID) (*model
 	return &schedule, nil
 }
 
-func (r *PayoutScheduleRepository) Update(schedule *model.PayoutSchedule) error {
+func (r *PayoutScheduleRepository) Update(schedule *payoutDomain.PayoutSchedule) error {
 	if schedule == nil {
 		return errors.New("payout schedule cannot be nil")
 	}
@@ -89,7 +89,7 @@ func (r *PayoutScheduleRepository) Suspend(id uuid.UUID, reason string) error {
 		return errors.New("suspend reason cannot be empty")
 	}
 	now := time.Now().UTC()
-	result := r.db.Model(&model.PayoutSchedule{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := r.db.Model(&payoutDomain.PayoutSchedule{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"is_suspended":     true,
 		"suspended_at":     sql.NullTime{Time: now, Valid: true},
 		"suspended_reason": sql.NullString{String: reason, Valid: true},
@@ -108,7 +108,7 @@ func (r *PayoutScheduleRepository) Resume(id uuid.UUID) error {
 	if id == uuid.Nil {
 		return errors.New("invalid payout schedule ID")
 	}
-	result := r.db.Model(&model.PayoutSchedule{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := r.db.Model(&payoutDomain.PayoutSchedule{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"is_suspended":     false,
 		"suspended_at":     nil,
 		"suspended_reason": nil,
@@ -127,7 +127,7 @@ func (r *PayoutScheduleRepository) UpdateLastScheduledPayout(id uuid.UUID, payou
 	if id == uuid.Nil {
 		return errors.New("invalid payout schedule ID")
 	}
-	result := r.db.Model(&model.PayoutSchedule{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := r.db.Model(&payoutDomain.PayoutSchedule{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"last_scheduled_payout_at": sql.NullTime{Time: payoutTime, Valid: true},
 		"updated_at":               time.Now().UTC(),
 	})
@@ -144,7 +144,7 @@ func (r *PayoutScheduleRepository) UpdateLastThresholdPayout(id uuid.UUID, payou
 	if id == uuid.Nil {
 		return errors.New("invalid payout schedule ID")
 	}
-	result := r.db.Model(&model.PayoutSchedule{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := r.db.Model(&payoutDomain.PayoutSchedule{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"last_threshold_payout_at": sql.NullTime{Time: payoutTime, Valid: true},
 		"updated_at":               time.Now().UTC(),
 	})
@@ -157,8 +157,8 @@ func (r *PayoutScheduleRepository) UpdateLastThresholdPayout(id uuid.UUID, payou
 	return nil
 }
 
-func (r *PayoutScheduleRepository) ListScheduledPayoutsDue() ([]*model.PayoutSchedule, error) {
-	var schedules []*model.PayoutSchedule
+func (r *PayoutScheduleRepository) ListScheduledPayoutsDue() ([]*payoutDomain.PayoutSchedule, error) {
+	var schedules []*payoutDomain.PayoutSchedule
 	err := r.db.
 		Where("scheduled_enabled = ? AND is_suspended = ? AND next_scheduled_payout_at IS NOT NULL AND next_scheduled_payout_at <= ?", true, false, time.Now()).
 		Order("next_scheduled_payout_at ASC").
@@ -166,8 +166,8 @@ func (r *PayoutScheduleRepository) ListScheduledPayoutsDue() ([]*model.PayoutSch
 	return schedules, err
 }
 
-func (r *PayoutScheduleRepository) ListThresholdEnabled() ([]*model.PayoutSchedule, error) {
-	var schedules []*model.PayoutSchedule
+func (r *PayoutScheduleRepository) ListThresholdEnabled() ([]*payoutDomain.PayoutSchedule, error) {
+	var schedules []*payoutDomain.PayoutSchedule
 	err := r.db.
 		Where("threshold_enabled = ? AND is_suspended = ?", true, false).
 		Order("threshold_usdt ASC").
@@ -179,7 +179,7 @@ func (r *PayoutScheduleRepository) Delete(id uuid.UUID) error {
 	if id == uuid.Nil {
 		return errors.New("invalid payout schedule ID")
 	}
-	result := r.db.Where("id = ?", id).Delete(&model.PayoutSchedule{})
+	result := r.db.Where("id = ?", id).Delete(&payoutDomain.PayoutSchedule{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -191,6 +191,6 @@ func (r *PayoutScheduleRepository) Delete(id uuid.UUID) error {
 
 func (r *PayoutScheduleRepository) Count() (int64, error) {
 	var count int64
-	err := r.db.Model(&model.PayoutSchedule{}).Count(&count).Error
+	err := r.db.Model(&payoutDomain.PayoutSchedule{}).Count(&count).Error
 	return count, err
 }

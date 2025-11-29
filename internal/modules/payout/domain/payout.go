@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/shopspring/decimal"
 )
 
@@ -59,8 +59,8 @@ type Payout struct {
 	RetryCount    int            `json:"retry_count" db:"retry_count"`
 
 	// Metadata
-	Notes    sql.NullString `json:"notes,omitempty" db:"notes"`
-	Metadata model.JSONBMap `json:"metadata,omitempty" db:"metadata"`
+	Notes    sql.NullString    `json:"notes,omitempty" db:"notes"`
+	Metadata database.JSONBMap `json:"metadata,omitempty" db:"metadata"`
 
 	// Timestamps
 	CreatedAt time.Time    `json:"created_at" db:"created_at"`

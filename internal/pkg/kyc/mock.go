@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 )
 
 var (
@@ -24,7 +24,7 @@ type MockApplicant struct {
 	ID                 string
 	FullName           string
 	Email              string
-	Status             model.KYCStatus
+	Status             merchantDomain.KYCStatus
 	FaceLivenessPassed bool
 	FaceLivenessScore  float64
 	CreatedAt          time.Time
@@ -79,7 +79,7 @@ func (m *MockKYCProvider) CreateApplicant(ctx context.Context, fullName, email s
 		ID:        applicantID,
 		FullName:  fullName,
 		Email:     email,
-		Status:    model.KYCStatusPending,
+		Status:    merchantDomain.KYCStatusPending,
 		CreatedAt: time.Now(),
 		Data: map[string]interface{}{
 			"full_name": fullName,
@@ -89,7 +89,7 @@ func (m *MockKYCProvider) CreateApplicant(ctx context.Context, fullName, email s
 
 	// Auto-approve if enabled
 	if m.autoApprove {
-		applicant.Status = model.KYCStatusApproved
+		applicant.Status = merchantDomain.KYCStatusApproved
 		now := time.Now()
 		applicant.VerifiedAt = &now
 	}
@@ -106,7 +106,7 @@ func (m *MockKYCProvider) CreateApplicant(ctx context.Context, fullName, email s
 }
 
 // GetApplicantStatus retrieves the current KYC status
-func (m *MockKYCProvider) GetApplicantStatus(ctx context.Context, applicantID string) (model.KYCStatus, error) {
+func (m *MockKYCProvider) GetApplicantStatus(ctx context.Context, applicantID string) (merchantDomain.KYCStatus, error) {
 	if m.simulateDelay {
 		m.delay()
 	}
@@ -176,7 +176,7 @@ func (m *MockKYCProvider) GetApplicantData(ctx context.Context, applicantID stri
 }
 
 // UpdateApplicantStatus manually updates an applicant's status (for testing)
-func (m *MockKYCProvider) UpdateApplicantStatus(applicantID string, status model.KYCStatus) error {
+func (m *MockKYCProvider) UpdateApplicantStatus(applicantID string, status merchantDomain.KYCStatus) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -187,7 +187,7 @@ func (m *MockKYCProvider) UpdateApplicantStatus(applicantID string, status model
 
 	applicant.Status = status
 
-	if status == model.KYCStatusApproved {
+	if status == merchantDomain.KYCStatusApproved {
 		now := time.Now()
 		applicant.VerifiedAt = &now
 	}

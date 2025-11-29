@@ -3,7 +3,9 @@ package dto
 import (
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	compliancedomain "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
+	payoutDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/domain"
 	"github.com/shopspring/decimal"
 )
 
@@ -203,7 +205,7 @@ type DailyStatsResponse struct {
 // Helper functions to convert models to DTOs
 
 // MerchantToDetailResponse converts a merchant model to a detail response DTO
-func MerchantToDetailResponse(merchant *model.Merchant, balance *model.MerchantBalance) *MerchantDetailResponse {
+func MerchantToDetailResponse(merchant *merchantDomain.Merchant, balance *merchantDomain.MerchantBalance) *MerchantDetailResponse {
 	response := &MerchantDetailResponse{
 		ID:            merchant.ID,
 		Email:         merchant.Email,
@@ -283,7 +285,7 @@ func MerchantToDetailResponse(merchant *model.Merchant, balance *model.MerchantB
 }
 
 // MerchantToListItem converts a merchant model to a list item DTO
-func MerchantToListItem(merchant *model.Merchant) *MerchantListItem {
+func MerchantToListItem(merchant *merchantDomain.Merchant) *MerchantListItem {
 	item := &MerchantListItem{
 		ID:           merchant.ID,
 		Email:        merchant.Email,
@@ -302,7 +304,7 @@ func MerchantToListItem(merchant *model.Merchant) *MerchantListItem {
 }
 
 // PayoutToDetailResponse converts a payout model to a detail response DTO
-func PayoutToDetailResponse(payout *model.Payout, merchantName string) *PayoutDetailResponse {
+func PayoutToDetailResponse(payout *payoutDomain.Payout, merchantName string) *PayoutDetailResponse {
 	response := &PayoutDetailResponse{
 		ID:                payout.ID,
 		MerchantID:        payout.MerchantID,
@@ -353,7 +355,7 @@ func PayoutToDetailResponse(payout *model.Payout, merchantName string) *PayoutDe
 }
 
 // AdminPayoutToListItem converts a payout model to an admin list item DTO (renamed to avoid conflict)
-func AdminPayoutToListItem(payout *model.Payout, merchantName string) *AdminPayoutListItem {
+func AdminPayoutToListItem(payout *payoutDomain.Payout, merchantName string) *AdminPayoutListItem {
 	return &AdminPayoutListItem{
 		ID:           payout.ID,
 		MerchantID:   payout.MerchantID,
@@ -429,8 +431,8 @@ type GetComplianceMetricsResponse struct {
 	LastScreeningDate      *time.Time      `json:"last_screening_date,omitempty"`
 }
 
-// TravelRuleDataToListItem converts a model.TravelRuleData to TravelRuleDataItem
-func TravelRuleDataToListItem(data *model.TravelRuleData) TravelRuleDataItem {
+// TravelRuleDataToListItem converts a compliancedomain.TravelRuleData to TravelRuleDataItem
+func TravelRuleDataToListItem(data *compliancedomain.TravelRuleData) TravelRuleDataItem {
 	item := TravelRuleDataItem{
 		ID:                  data.ID, // ID is already a string
 		PaymentID:           data.PaymentID,

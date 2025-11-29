@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/service"
 	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 )
@@ -102,7 +102,7 @@ func (h *MerchantHandler) GetBalance(c *gin.Context) {
 		return
 	}
 
-	merchant, ok := merchantInterface.(*model.Merchant)
+	merchant, ok := merchantInterface.(*domain.Merchant)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, ErrorResponse(
 			"INTERNAL_ERROR",
@@ -151,7 +151,7 @@ func (h *MerchantHandler) GetTransactions(c *gin.Context) {
 		return
 	}
 
-	merchant, ok := merchantInterface.(*model.Merchant)
+	merchant, ok := merchantInterface.(*domain.Merchant)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, ErrorResponse(
 			"INTERNAL_ERROR",
@@ -278,7 +278,7 @@ func (h *MerchantHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	merchant, ok := merchantInterface.(*model.Merchant)
+	merchant, ok := merchantInterface.(*domain.Merchant)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, ErrorResponse(
 			"INTERNAL_ERROR",

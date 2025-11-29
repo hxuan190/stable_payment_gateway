@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	blockchainDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/domain"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"gorm.io/gorm"
 )
 
@@ -33,7 +34,7 @@ func NewBlockchainTxRepository(db *gorm.DB) *BlockchainTxRepository {
 }
 
 // Create inserts a new blockchain transaction into the database
-func (r *BlockchainTxRepository) Create(tx *model.BlockchainTransaction) error {
+func (r *BlockchainTxRepository) Create(tx *blockchainDomain.BlockchainTransaction) error {
 	if tx == nil {
 		return errors.New("blockchain transaction cannot be nil")
 	}
@@ -53,12 +54,12 @@ func (r *BlockchainTxRepository) Create(tx *model.BlockchainTransaction) error {
 }
 
 // GetByID retrieves a blockchain transaction by its ID
-func (r *BlockchainTxRepository) GetByID(id string) (*model.BlockchainTransaction, error) {
+func (r *BlockchainTxRepository) GetByID(id string) (*blockchainDomain.BlockchainTransaction, error) {
 	if id == "" {
 		return nil, errors.New("id cannot be empty")
 	}
 
-	tx := &model.BlockchainTransaction{}
+	tx := &blockchainDomain.BlockchainTransaction{}
 	if err := r.db.Where("id = ?", id).First(tx).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrBlockchainTxNotFound
@@ -70,12 +71,12 @@ func (r *BlockchainTxRepository) GetByID(id string) (*model.BlockchainTransactio
 }
 
 // GetByTxHash retrieves a blockchain transaction by its transaction hash
-func (r *BlockchainTxRepository) GetByTxHash(txHash string) (*model.BlockchainTransaction, error) {
+func (r *BlockchainTxRepository) GetByTxHash(txHash string) (*blockchainDomain.BlockchainTransaction, error) {
 	if txHash == "" {
 		return nil, ErrInvalidTxHash
 	}
 
-	tx := &model.BlockchainTransaction{}
+	tx := &blockchainDomain.BlockchainTransaction{}
 	if err := r.db.Where("tx_hash = ?", txHash).First(tx).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrBlockchainTxNotFound
@@ -96,7 +97,7 @@ func (r *BlockchainTxRepository) UpdateConfirmations(txHash string, confirmation
 		return errors.New("confirmations cannot be negative")
 	}
 
-	result := r.db.Model(&model.BlockchainTransaction{}).
+	result := r.db.Model(&blockchainDomain.BlockchainTransaction{}).
 		Where("tx_hash = ?", txHash).
 		Updates(map[string]interface{}{
 			"confirmations": confirmations,
@@ -115,12 +116,12 @@ func (r *BlockchainTxRepository) UpdateConfirmations(txHash string, confirmation
 }
 
 // UpdateStatus updates the status of a blockchain transaction
-func (r *BlockchainTxRepository) UpdateStatus(txHash string, status model.BlockchainTxStatus) error {
+func (r *BlockchainTxRepository) UpdateStatus(txHash string, status blockchainDomain.BlockchainTxStatus) error {
 	if txHash == "" {
 		return ErrInvalidTxHash
 	}
 
-	result := r.db.Model(&model.BlockchainTransaction{}).
+	result := r.db.Model(&blockchainDomain.BlockchainTransaction{}).
 		Where("tx_hash = ?", txHash).
 		Updates(map[string]interface{}{
 			"status":     status,
@@ -145,12 +146,12 @@ func (r *BlockchainTxRepository) MarkAsFinalized(txHash string) error {
 	}
 
 	now := time.Now()
-	result := r.db.Model(&model.BlockchainTransaction{}).
+	result := r.db.Model(&blockchainDomain.BlockchainTransaction{}).
 		Where("tx_hash = ?", txHash).
 		Updates(map[string]interface{}{
 			"is_finalized": true,
 			"finalized_at": now,
-			"status":       model.BlockchainTxStatusFinalized,
+			"status":       blockchainDomain.BlockchainTxStatusFinalized,
 			"updated_at":   now,
 		})
 
@@ -176,7 +177,7 @@ func (r *BlockchainTxRepository) MatchToPayment(txHash string, paymentID string)
 	}
 
 	now := time.Now()
-	result := r.db.Model(&model.BlockchainTransaction{}).
+	result := r.db.Model(&blockchainDomain.BlockchainTransaction{}).
 		Where("tx_hash = ?", txHash).
 		Updates(map[string]interface{}{
 			"payment_id": paymentID,
@@ -202,10 +203,10 @@ func (r *BlockchainTxRepository) MarkAsFailed(txHash string, errorMessage string
 		return ErrInvalidTxHash
 	}
 
-	result := r.db.Model(&model.BlockchainTransaction{}).
+	result := r.db.Model(&blockchainDomain.BlockchainTransaction{}).
 		Where("tx_hash = ?", txHash).
 		Updates(map[string]interface{}{
-			"status":        model.BlockchainTxStatusFailed,
+			"status":        blockchainDomain.BlockchainTxStatusFailed,
 			"error_message": errorMessage,
 			"updated_at":    time.Now(),
 		})
@@ -222,9 +223,9 @@ func (r *BlockchainTxRepository) MarkAsFailed(txHash string, errorMessage string
 }
 
 // GetPendingTransactions retrieves all pending blockchain transactions
-func (r *BlockchainTxRepository) GetPendingTransactions() ([]*model.BlockchainTransaction, error) {
-	var transactions []*model.BlockchainTransaction
-	if err := r.db.Where("status = ? AND is_finalized = ?", model.BlockchainTxStatusPending, false).
+func (r *BlockchainTxRepository) GetPendingTransactions() ([]*blockchainDomain.BlockchainTransaction, error) {
+	var transactions []*blockchainDomain.BlockchainTransaction
+	if err := r.db.Where("status = ? AND is_finalized = ?", blockchainDomain.BlockchainTxStatusPending, false).
 		Order("created_at ASC").
 		Find(&transactions).Error; err != nil {
 		return nil, fmt.Errorf("failed to get pending transactions: %w", err)
@@ -234,10 +235,10 @@ func (r *BlockchainTxRepository) GetPendingTransactions() ([]*model.BlockchainTr
 }
 
 // GetUnmatchedTransactions retrieves blockchain transactions that have a payment reference but haven't been matched yet
-func (r *BlockchainTxRepository) GetUnmatchedTransactions(chain model.Chain) ([]*model.BlockchainTransaction, error) {
-	var transactions []*model.BlockchainTransaction
+func (r *BlockchainTxRepository) GetUnmatchedTransactions(chain paymentDomain.Chain) ([]*blockchainDomain.BlockchainTransaction, error) {
+	var transactions []*blockchainDomain.BlockchainTransaction
 	if err := r.db.Where("chain = ? AND is_matched = ? AND parsed_payment_reference IS NOT NULL AND status IN ?",
-		chain, false, []model.BlockchainTxStatus{model.BlockchainTxStatusConfirmed, model.BlockchainTxStatusFinalized}).
+		chain, false, []blockchainDomain.BlockchainTxStatus{blockchainDomain.BlockchainTxStatusConfirmed, blockchainDomain.BlockchainTxStatusFinalized}).
 		Order("created_at ASC").
 		Find(&transactions).Error; err != nil {
 		return nil, fmt.Errorf("failed to get unmatched transactions: %w", err)
@@ -247,12 +248,12 @@ func (r *BlockchainTxRepository) GetUnmatchedTransactions(chain model.Chain) ([]
 }
 
 // GetByPaymentID retrieves all blockchain transactions associated with a payment
-func (r *BlockchainTxRepository) GetByPaymentID(paymentID string) ([]*model.BlockchainTransaction, error) {
+func (r *BlockchainTxRepository) GetByPaymentID(paymentID string) ([]*blockchainDomain.BlockchainTransaction, error) {
 	if paymentID == "" {
 		return nil, errors.New("payment ID cannot be empty")
 	}
 
-	var transactions []*model.BlockchainTransaction
+	var transactions []*blockchainDomain.BlockchainTransaction
 	if err := r.db.Where("payment_id = ?", paymentID).
 		Order("created_at DESC").
 		Find(&transactions).Error; err != nil {
@@ -263,8 +264,8 @@ func (r *BlockchainTxRepository) GetByPaymentID(paymentID string) ([]*model.Bloc
 }
 
 // ListByChainAndStatus retrieves blockchain transactions filtered by chain and status
-func (r *BlockchainTxRepository) ListByChainAndStatus(chain model.Chain, status model.BlockchainTxStatus, limit, offset int) ([]*model.BlockchainTransaction, error) {
-	var transactions []*model.BlockchainTransaction
+func (r *BlockchainTxRepository) ListByChainAndStatus(chain paymentDomain.Chain, status blockchainDomain.BlockchainTxStatus, limit, offset int) ([]*blockchainDomain.BlockchainTransaction, error) {
+	var transactions []*blockchainDomain.BlockchainTransaction
 	if err := r.db.Where("chain = ? AND status = ?", chain, status).
 		Order("created_at DESC").
 		Limit(limit).

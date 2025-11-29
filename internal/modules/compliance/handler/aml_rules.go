@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 )
 
@@ -45,7 +45,7 @@ func (h *AMLRuleHandler) GetRule(c *gin.Context) {
 }
 
 func (h *AMLRuleHandler) GetRulesByCategory(c *gin.Context) {
-	category := model.AMLRuleCategory(c.Param("category"))
+	category := domain.AMLRuleCategory(c.Param("category"))
 
 	rules, err := h.ruleRepo.GetEnabledByCategory(c.Request.Context(), category)
 	if err != nil {
@@ -61,7 +61,7 @@ func (h *AMLRuleHandler) GetRulesByCategory(c *gin.Context) {
 }
 
 func (h *AMLRuleHandler) CreateRule(c *gin.Context) {
-	var rule model.AMLRule
+	var rule domain.AMLRule
 	if err := c.ShouldBindJSON(&rule); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -78,7 +78,7 @@ func (h *AMLRuleHandler) CreateRule(c *gin.Context) {
 func (h *AMLRuleHandler) UpdateRule(c *gin.Context) {
 	ruleID := c.Param("id")
 
-	var rule model.AMLRule
+	var rule domain.AMLRule
 	if err := c.ShouldBindJSON(&rule); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

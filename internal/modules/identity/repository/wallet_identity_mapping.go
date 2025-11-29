@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/identity/domain"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/shopspring/decimal"
 )
 
@@ -31,7 +33,7 @@ func NewWalletIdentityMappingRepository(db *sql.DB) *WalletIdentityMappingReposi
 }
 
 // Create inserts a new wallet identity mapping
-func (r *WalletIdentityMappingRepository) Create(mapping *model.WalletIdentityMapping) error {
+func (r *WalletIdentityMappingRepository) Create(mapping *domain.WalletIdentityMapping) error {
 	if mapping == nil {
 		return errors.New("wallet identity mapping cannot be nil")
 	}
@@ -43,7 +45,7 @@ func (r *WalletIdentityMappingRepository) Create(mapping *model.WalletIdentityMa
 
 	// Compute wallet hash if not provided
 	if mapping.WalletAddressHash == "" {
-		mapping.WalletAddressHash = model.ComputeWalletHash(mapping.WalletAddress)
+		mapping.WalletAddressHash = domain.ComputeWalletHash(mapping.WalletAddress)
 	}
 
 	query := `
@@ -106,7 +108,7 @@ func (r *WalletIdentityMappingRepository) Create(mapping *model.WalletIdentityMa
 }
 
 // GetByID retrieves a wallet identity mapping by ID
-func (r *WalletIdentityMappingRepository) GetByID(id uuid.UUID) (*model.WalletIdentityMapping, error) {
+func (r *WalletIdentityMappingRepository) GetByID(id uuid.UUID) (*domain.WalletIdentityMapping, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("invalid wallet mapping ID")
 	}
@@ -123,7 +125,7 @@ func (r *WalletIdentityMappingRepository) GetByID(id uuid.UUID) (*model.WalletId
 		WHERE id = $1
 	`
 
-	mapping := &model.WalletIdentityMapping{}
+	mapping := &domain.WalletIdentityMapping{}
 	err := r.db.QueryRow(query, id).Scan(
 		&mapping.ID,
 		&mapping.WalletAddress,
@@ -154,7 +156,7 @@ func (r *WalletIdentityMappingRepository) GetByID(id uuid.UUID) (*model.WalletId
 }
 
 // GetByWalletAddress retrieves a wallet identity mapping by wallet address and blockchain
-func (r *WalletIdentityMappingRepository) GetByWalletAddress(walletAddress string, blockchain model.Chain) (*model.WalletIdentityMapping, error) {
+func (r *WalletIdentityMappingRepository) GetByWalletAddress(walletAddress string, blockchain paymentDomain.Chain) (*domain.WalletIdentityMapping, error) {
 	if walletAddress == "" {
 		return nil, errors.New("wallet address cannot be empty")
 	}
@@ -171,7 +173,7 @@ func (r *WalletIdentityMappingRepository) GetByWalletAddress(walletAddress strin
 		WHERE wallet_address = $1 AND blockchain = $2
 	`
 
-	mapping := &model.WalletIdentityMapping{}
+	mapping := &domain.WalletIdentityMapping{}
 	err := r.db.QueryRow(query, walletAddress, blockchain).Scan(
 		&mapping.ID,
 		&mapping.WalletAddress,
@@ -202,7 +204,7 @@ func (r *WalletIdentityMappingRepository) GetByWalletAddress(walletAddress strin
 }
 
 // GetByUserID retrieves all wallet identity mappings for a user
-func (r *WalletIdentityMappingRepository) GetByUserID(userID uuid.UUID) ([]*model.WalletIdentityMapping, error) {
+func (r *WalletIdentityMappingRepository) GetByUserID(userID uuid.UUID) ([]*domain.WalletIdentityMapping, error) {
 	if userID == uuid.Nil {
 		return nil, errors.New("user ID cannot be empty")
 	}
@@ -226,9 +228,9 @@ func (r *WalletIdentityMappingRepository) GetByUserID(userID uuid.UUID) ([]*mode
 	}
 	defer rows.Close()
 
-	mappings := make([]*model.WalletIdentityMapping, 0)
+	mappings := make([]*domain.WalletIdentityMapping, 0)
 	for rows.Next() {
-		mapping := &model.WalletIdentityMapping{}
+		mapping := &domain.WalletIdentityMapping{}
 		err := rows.Scan(
 			&mapping.ID,
 			&mapping.WalletAddress,
@@ -261,7 +263,7 @@ func (r *WalletIdentityMappingRepository) GetByUserID(userID uuid.UUID) ([]*mode
 }
 
 // Update updates an existing wallet identity mapping
-func (r *WalletIdentityMappingRepository) Update(mapping *model.WalletIdentityMapping) error {
+func (r *WalletIdentityMappingRepository) Update(mapping *domain.WalletIdentityMapping) error {
 	if mapping == nil {
 		return errors.New("wallet identity mapping cannot be nil")
 	}
@@ -270,7 +272,7 @@ func (r *WalletIdentityMappingRepository) Update(mapping *model.WalletIdentityMa
 	}
 
 	// Update wallet hash
-	mapping.WalletAddressHash = model.ComputeWalletHash(mapping.WalletAddress)
+	mapping.WalletAddressHash = domain.ComputeWalletHash(mapping.WalletAddress)
 
 	query := `
 		UPDATE wallet_identity_mappings SET
@@ -428,7 +430,7 @@ func (r *WalletIdentityMappingRepository) Unflag(id uuid.UUID) error {
 }
 
 // ListActive retrieves active wallet mappings (seen in last 7 days)
-func (r *WalletIdentityMappingRepository) ListActive(limit, offset int) ([]*model.WalletIdentityMapping, error) {
+func (r *WalletIdentityMappingRepository) ListActive(limit, offset int) ([]*domain.WalletIdentityMapping, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -456,9 +458,9 @@ func (r *WalletIdentityMappingRepository) ListActive(limit, offset int) ([]*mode
 	}
 	defer rows.Close()
 
-	mappings := make([]*model.WalletIdentityMapping, 0)
+	mappings := make([]*domain.WalletIdentityMapping, 0)
 	for rows.Next() {
-		mapping := &model.WalletIdentityMapping{}
+		mapping := &domain.WalletIdentityMapping{}
 		err := rows.Scan(
 			&mapping.ID,
 			&mapping.WalletAddress,
@@ -491,7 +493,7 @@ func (r *WalletIdentityMappingRepository) ListActive(limit, offset int) ([]*mode
 }
 
 // ListFlagged retrieves all flagged wallet mappings
-func (r *WalletIdentityMappingRepository) ListFlagged(limit, offset int) ([]*model.WalletIdentityMapping, error) {
+func (r *WalletIdentityMappingRepository) ListFlagged(limit, offset int) ([]*domain.WalletIdentityMapping, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -519,9 +521,9 @@ func (r *WalletIdentityMappingRepository) ListFlagged(limit, offset int) ([]*mod
 	}
 	defer rows.Close()
 
-	mappings := make([]*model.WalletIdentityMapping, 0)
+	mappings := make([]*domain.WalletIdentityMapping, 0)
 	for rows.Next() {
-		mapping := &model.WalletIdentityMapping{}
+		mapping := &domain.WalletIdentityMapping{}
 		err := rows.Scan(
 			&mapping.ID,
 			&mapping.WalletAddress,

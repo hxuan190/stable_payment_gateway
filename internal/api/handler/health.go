@@ -208,7 +208,7 @@ func (h *HealthHandler) checkWallet(ctx context.Context) *dto.WalletStatus {
 	if err != nil {
 		logger.Error("Failed to get SOL balance", err)
 	} else {
-		walletStatus.BalanceSOL = fmt.Sprintf("%.4f SOL", solBalance)
+		walletStatus.BalanceSOL = fmt.Sprintf("%s SOL", solBalance.StringFixed(4))
 	}
 
 	// Note: Token balances are fetched asynchronously and may not be critical for health checks

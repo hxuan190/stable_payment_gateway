@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	payoutDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/domain"
 	"gorm.io/gorm"
 )
 
@@ -32,7 +32,7 @@ func NewPayoutRepository(gormDB *gorm.DB) *PayoutRepository {
 }
 
 // Create inserts a new payout into the database
-func (r *PayoutRepository) Create(payout *model.Payout) error {
+func (r *PayoutRepository) Create(payout *payoutDomain.Payout) error {
 	if payout == nil {
 		return errors.New("payout cannot be nil")
 	}
@@ -45,12 +45,12 @@ func (r *PayoutRepository) Create(payout *model.Payout) error {
 }
 
 // GetByID retrieves a payout by ID
-func (r *PayoutRepository) GetByID(id string) (*model.Payout, error) {
+func (r *PayoutRepository) GetByID(id string) (*payoutDomain.Payout, error) {
 	if id == "" {
 		return nil, ErrInvalidPayoutID
 	}
 
-	payout := &model.Payout{}
+	payout := &payoutDomain.Payout{}
 	if err := r.gormDB.Where("id = ?", id).First(payout).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPayoutNotFound
@@ -62,7 +62,7 @@ func (r *PayoutRepository) GetByID(id string) (*model.Payout, error) {
 }
 
 // ListByMerchant retrieves payouts for a specific merchant with pagination
-func (r *PayoutRepository) ListByMerchant(merchantID string, limit, offset int) ([]*model.Payout, error) {
+func (r *PayoutRepository) ListByMerchant(merchantID string, limit, offset int) ([]*payoutDomain.Payout, error) {
 	if merchantID == "" {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
@@ -73,7 +73,7 @@ func (r *PayoutRepository) ListByMerchant(merchantID string, limit, offset int) 
 		offset = 0
 	}
 
-	payouts := make([]*model.Payout, 0)
+	payouts := make([]*payoutDomain.Payout, 0)
 	if err := r.gormDB.Where("merchant_id = ?", merchantID).Offset(offset).Limit(limit).Find(&payouts).Error; err != nil {
 		return nil, fmt.Errorf("failed to list payouts by merchant: %w", err)
 	}
@@ -82,7 +82,7 @@ func (r *PayoutRepository) ListByMerchant(merchantID string, limit, offset int) 
 }
 
 // ListByStatus retrieves payouts by status with pagination
-func (r *PayoutRepository) ListByStatus(status model.PayoutStatus, limit, offset int) ([]*model.Payout, error) {
+func (r *PayoutRepository) ListByStatus(status payoutDomain.PayoutStatus, limit, offset int) ([]*payoutDomain.Payout, error) {
 	if status == "" {
 		return nil, ErrInvalidPayoutStatus
 	}
@@ -93,7 +93,7 @@ func (r *PayoutRepository) ListByStatus(status model.PayoutStatus, limit, offset
 		offset = 0
 	}
 
-	payouts := make([]*model.Payout, 0)
+	payouts := make([]*payoutDomain.Payout, 0)
 	if err := r.gormDB.Where("status = ?", status).Offset(offset).Limit(limit).Find(&payouts).Error; err != nil {
 		return nil, fmt.Errorf("failed to list payouts by status: %w", err)
 	}
@@ -102,7 +102,7 @@ func (r *PayoutRepository) ListByStatus(status model.PayoutStatus, limit, offset
 }
 
 // UpdateStatus updates only the status of a payout
-func (r *PayoutRepository) UpdateStatus(id string, status model.PayoutStatus) error {
+func (r *PayoutRepository) UpdateStatus(id string, status payoutDomain.PayoutStatus) error {
 	if id == "" {
 		return ErrInvalidPayoutID
 	}
@@ -111,19 +111,19 @@ func (r *PayoutRepository) UpdateStatus(id string, status model.PayoutStatus) er
 	}
 
 	// Validate status
-	validStatuses := map[model.PayoutStatus]bool{
-		model.PayoutStatusRequested:  true,
-		model.PayoutStatusApproved:   true,
-		model.PayoutStatusProcessing: true,
-		model.PayoutStatusCompleted:  true,
-		model.PayoutStatusRejected:   true,
-		model.PayoutStatusFailed:     true,
+	validStatuses := map[payoutDomain.PayoutStatus]bool{
+		payoutDomain.PayoutStatusRequested:  true,
+		payoutDomain.PayoutStatusApproved:   true,
+		payoutDomain.PayoutStatusProcessing: true,
+		payoutDomain.PayoutStatusCompleted:  true,
+		payoutDomain.PayoutStatusRejected:   true,
+		payoutDomain.PayoutStatusFailed:     true,
 	}
 	if !validStatuses[status] {
 		return ErrInvalidPayoutStatus
 	}
 
-	if err := r.gormDB.Model(&model.Payout{}).Where("id = ?", id).Update("status", status).Error; err != nil {
+	if err := r.gormDB.Model(&payoutDomain.Payout{}).Where("id = ?", id).Update("status", status).Error; err != nil {
 		return fmt.Errorf("failed to update payout status: %w", err)
 	}
 
@@ -131,7 +131,7 @@ func (r *PayoutRepository) UpdateStatus(id string, status model.PayoutStatus) er
 }
 
 // Update updates an existing payout in the database
-func (r *PayoutRepository) Update(payout *model.Payout) error {
+func (r *PayoutRepository) Update(payout *payoutDomain.Payout) error {
 	if payout == nil {
 		return errors.New("payout cannot be nil")
 	}
@@ -165,7 +165,7 @@ func (r *PayoutRepository) MarkCompleted(id string, referenceNumber string) erro
 		return fmt.Errorf("failed to get payout: %w", err)
 	}
 
-	payout.Status = model.PayoutStatusCompleted
+	payout.Status = payoutDomain.PayoutStatusCompleted
 	payout.BankReferenceNumber = sql.NullString{String: referenceNumber, Valid: true}
 	payout.CompletionDate = sql.NullTime{Time: time.Now(), Valid: true}
 	payout.UpdatedAt = time.Now()
@@ -187,7 +187,7 @@ func (r *PayoutRepository) Approve(id, approvedBy string) error {
 		return fmt.Errorf("failed to get payout: %w", err)
 	}
 
-	payout.Status = model.PayoutStatusApproved
+	payout.Status = payoutDomain.PayoutStatusApproved
 	payout.ApprovedBy = sql.NullString{String: approvedBy, Valid: true}
 	payout.ApprovedAt = sql.NullTime{Time: now, Valid: true}
 	payout.UpdatedAt = now
@@ -210,7 +210,7 @@ func (r *PayoutRepository) Reject(id string, reason string) error {
 		return fmt.Errorf("failed to get payout: %w", err)
 	}
 
-	payout.Status = model.PayoutStatusRejected
+	payout.Status = payoutDomain.PayoutStatusRejected
 	payout.RejectionReason = sql.NullString{String: reason, Valid: true}
 	payout.UpdatedAt = now
 
@@ -220,7 +220,7 @@ func (r *PayoutRepository) Reject(id string, reason string) error {
 // Count returns the total number of payouts (excluding deleted)
 func (r *PayoutRepository) Count() (int64, error) {
 	var count int64
-	if err := r.gormDB.Model(&model.Payout{}).Where("deleted_at IS NULL").Count(&count).Error; err != nil {
+	if err := r.gormDB.Model(&payoutDomain.Payout{}).Where("deleted_at IS NULL").Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count payouts: %w", err)
 	}
 
@@ -234,7 +234,7 @@ func (r *PayoutRepository) CountByMerchant(merchantID string) (int64, error) {
 	}
 
 	var count int64
-	if err := r.gormDB.Model(&model.Payout{}).Where("merchant_id = ? AND deleted_at IS NULL", merchantID).Count(&count).Error; err != nil {
+	if err := r.gormDB.Model(&payoutDomain.Payout{}).Where("merchant_id = ? AND deleted_at IS NULL", merchantID).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count payouts by merchant: %w", err)
 	}
 
@@ -242,13 +242,13 @@ func (r *PayoutRepository) CountByMerchant(merchantID string) (int64, error) {
 }
 
 // CountByStatus returns the count of payouts by status
-func (r *PayoutRepository) CountByStatus(status model.PayoutStatus) (int64, error) {
+func (r *PayoutRepository) CountByStatus(status payoutDomain.PayoutStatus) (int64, error) {
 	if status == "" {
 		return 0, ErrInvalidPayoutStatus
 	}
 
 	var count int64
-	if err := r.gormDB.Model(&model.Payout{}).Where("status = ? AND deleted_at IS NULL", status).Count(&count).Error; err != nil {
+	if err := r.gormDB.Model(&payoutDomain.Payout{}).Where("status = ? AND deleted_at IS NULL", status).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count payouts by status: %w", err)
 	}
 

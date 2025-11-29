@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
+	userDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/user/domain"
 	"github.com/shopspring/decimal"
 )
 
@@ -33,7 +35,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 }
 
 // Create inserts a new user into the database
-func (r *UserRepository) Create(user *model.User) error {
+func (r *UserRepository) Create(user *userDomain.User) error {
 	if user == nil {
 		return errors.New("user cannot be nil")
 	}
@@ -116,7 +118,7 @@ func (r *UserRepository) Create(user *model.User) error {
 }
 
 // GetByID retrieves a user by ID
-func (r *UserRepository) GetByID(id uuid.UUID) (*model.User, error) {
+func (r *UserRepository) GetByID(id uuid.UUID) (*userDomain.User, error) {
 	if id == uuid.Nil {
 		return nil, ErrInvalidUserID
 	}
@@ -136,7 +138,7 @@ func (r *UserRepository) GetByID(id uuid.UUID) (*model.User, error) {
 		WHERE id = $1
 	`
 
-	user := &model.User{}
+	user := &userDomain.User{}
 	err := r.db.QueryRow(query, id).Scan(
 		&user.ID,
 		&user.FullName,
@@ -181,7 +183,7 @@ func (r *UserRepository) GetByID(id uuid.UUID) (*model.User, error) {
 }
 
 // GetByEmail retrieves a user by email
-func (r *UserRepository) GetByEmail(email string) (*model.User, error) {
+func (r *UserRepository) GetByEmail(email string) (*userDomain.User, error) {
 	if email == "" {
 		return nil, errors.New("email cannot be empty")
 	}
@@ -201,7 +203,7 @@ func (r *UserRepository) GetByEmail(email string) (*model.User, error) {
 		WHERE email = $1
 	`
 
-	user := &model.User{}
+	user := &userDomain.User{}
 	err := r.db.QueryRow(query, email).Scan(
 		&user.ID,
 		&user.FullName,
@@ -246,7 +248,7 @@ func (r *UserRepository) GetByEmail(email string) (*model.User, error) {
 }
 
 // GetByKYCApplicantID retrieves a user by Sumsub applicant ID
-func (r *UserRepository) GetByKYCApplicantID(applicantID string) (*model.User, error) {
+func (r *UserRepository) GetByKYCApplicantID(applicantID string) (*userDomain.User, error) {
 	if applicantID == "" {
 		return nil, errors.New("KYC applicant ID cannot be empty")
 	}
@@ -266,7 +268,7 @@ func (r *UserRepository) GetByKYCApplicantID(applicantID string) (*model.User, e
 		WHERE kyc_applicant_id = $1
 	`
 
-	user := &model.User{}
+	user := &userDomain.User{}
 	err := r.db.QueryRow(query, applicantID).Scan(
 		&user.ID,
 		&user.FullName,
@@ -311,7 +313,7 @@ func (r *UserRepository) GetByKYCApplicantID(applicantID string) (*model.User, e
 }
 
 // Update updates an existing user
-func (r *UserRepository) Update(user *model.User) error {
+func (r *UserRepository) Update(user *userDomain.User) error {
 	if user == nil {
 		return errors.New("user cannot be nil")
 	}
@@ -397,7 +399,7 @@ func (r *UserRepository) Update(user *model.User) error {
 }
 
 // UpdateKYCStatus updates the KYC status of a user
-func (r *UserRepository) UpdateKYCStatus(id uuid.UUID, status model.KYCStatus, rejectionReason *string) error {
+func (r *UserRepository) UpdateKYCStatus(id uuid.UUID, status merchantDomain.KYCStatus, rejectionReason *string) error {
 	if id == uuid.Nil {
 		return ErrInvalidUserID
 	}
@@ -405,7 +407,7 @@ func (r *UserRepository) UpdateKYCStatus(id uuid.UUID, status model.KYCStatus, r
 	var query string
 	var args []interface{}
 
-	if status == model.KYCStatusApproved {
+	if status == merchantDomain.KYCStatusApproved {
 		query = `
 			UPDATE users
 			SET kyc_status = $2, kyc_verified_at = $3, kyc_rejection_reason = NULL, updated_at = $4
@@ -413,7 +415,7 @@ func (r *UserRepository) UpdateKYCStatus(id uuid.UUID, status model.KYCStatus, r
 		`
 		now := time.Now()
 		args = []interface{}{id, status, sql.NullTime{Time: now, Valid: true}, now}
-	} else if status == model.KYCStatusRejected && rejectionReason != nil {
+	} else if status == merchantDomain.KYCStatusRejected && rejectionReason != nil {
 		query = `
 			UPDATE users
 			SET kyc_status = $2, kyc_rejection_reason = $3, updated_at = $4
@@ -481,7 +483,7 @@ func (r *UserRepository) IncrementPaymentStats(id uuid.UUID, amountUSD decimal.D
 }
 
 // ListByKYCStatus retrieves users by KYC status with pagination
-func (r *UserRepository) ListByKYCStatus(status model.KYCStatus, limit, offset int) ([]*model.User, error) {
+func (r *UserRepository) ListByKYCStatus(status merchantDomain.KYCStatus, limit, offset int) ([]*userDomain.User, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -512,9 +514,9 @@ func (r *UserRepository) ListByKYCStatus(status model.KYCStatus, limit, offset i
 	}
 	defer rows.Close()
 
-	users := make([]*model.User, 0)
+	users := make([]*userDomain.User, 0)
 	for rows.Next() {
-		user := &model.User{}
+		user := &userDomain.User{}
 		err := rows.Scan(
 			&user.ID,
 			&user.FullName,
@@ -558,7 +560,7 @@ func (r *UserRepository) ListByKYCStatus(status model.KYCStatus, limit, offset i
 }
 
 // ListHighRisk retrieves high-risk users (PEP or sanctioned or high risk level)
-func (r *UserRepository) ListHighRisk(limit, offset int) ([]*model.User, error) {
+func (r *UserRepository) ListHighRisk(limit, offset int) ([]*userDomain.User, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -589,9 +591,9 @@ func (r *UserRepository) ListHighRisk(limit, offset int) ([]*model.User, error) 
 	}
 	defer rows.Close()
 
-	users := make([]*model.User, 0)
+	users := make([]*userDomain.User, 0)
 	for rows.Next() {
-		user := &model.User{}
+		user := &userDomain.User{}
 		err := rows.Scan(
 			&user.ID,
 			&user.FullName,

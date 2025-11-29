@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	notificationDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/domain"
 	"gorm.io/gorm"
 )
 
@@ -29,7 +29,7 @@ func NewNotificationLogRepository(db *gorm.DB) *NotificationLogRepository {
 }
 
 // Create inserts a new notification log
-func (r *NotificationLogRepository) Create(log *model.NotificationLog) error {
+func (r *NotificationLogRepository) Create(log *notificationDomain.NotificationLog) error {
 	if log == nil {
 		return errors.New("notification log cannot be nil")
 	}
@@ -47,12 +47,12 @@ func (r *NotificationLogRepository) Create(log *model.NotificationLog) error {
 }
 
 // GetByID retrieves a notification log by ID
-func (r *NotificationLogRepository) GetByID(id uuid.UUID) (*model.NotificationLog, error) {
+func (r *NotificationLogRepository) GetByID(id uuid.UUID) (*notificationDomain.NotificationLog, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("invalid notification log ID")
 	}
 
-	log := &model.NotificationLog{}
+	log := &notificationDomain.NotificationLog{}
 	if err := r.db.Where("id = ?", id).First(log).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotificationLogNotFound
@@ -65,12 +65,12 @@ func (r *NotificationLogRepository) GetByID(id uuid.UUID) (*model.NotificationLo
 }
 
 // GetByPaymentID retrieves all notification logs for a payment
-func (r *NotificationLogRepository) GetByPaymentID(paymentID uuid.UUID) ([]*model.NotificationLog, error) {
+func (r *NotificationLogRepository) GetByPaymentID(paymentID uuid.UUID) ([]*notificationDomain.NotificationLog, error) {
 	if paymentID == uuid.Nil {
 		return nil, errors.New("payment ID cannot be empty")
 	}
 
-	var logs []*model.NotificationLog
+	var logs []*notificationDomain.NotificationLog
 	if err := r.db.Where("payment_id = ?", paymentID).Order("created_at ASC").Find(&logs).Error; err != nil {
 		return nil, fmt.Errorf("failed to get notification logs by payment ID: %w", err)
 	}
@@ -79,7 +79,7 @@ func (r *NotificationLogRepository) GetByPaymentID(paymentID uuid.UUID) ([]*mode
 }
 
 // GetByMerchantID retrieves notification logs for a merchant with pagination
-func (r *NotificationLogRepository) GetByMerchantID(merchantID uuid.UUID, limit, offset int) ([]*model.NotificationLog, error) {
+func (r *NotificationLogRepository) GetByMerchantID(merchantID uuid.UUID, limit, offset int) ([]*notificationDomain.NotificationLog, error) {
 	if merchantID == uuid.Nil {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
@@ -91,7 +91,7 @@ func (r *NotificationLogRepository) GetByMerchantID(merchantID uuid.UUID, limit,
 		offset = 0
 	}
 
-	var logs []*model.NotificationLog
+	var logs []*notificationDomain.NotificationLog
 	if err := r.db.Where("merchant_id = ?", merchantID).
 		Order("created_at DESC").
 		Limit(limit).
@@ -104,7 +104,7 @@ func (r *NotificationLogRepository) GetByMerchantID(merchantID uuid.UUID, limit,
 }
 
 // Update updates an existing notification log
-func (r *NotificationLogRepository) Update(log *model.NotificationLog) error {
+func (r *NotificationLogRepository) Update(log *notificationDomain.NotificationLog) error {
 	if log == nil {
 		return errors.New("notification log cannot be nil")
 	}
@@ -114,7 +114,7 @@ func (r *NotificationLogRepository) Update(log *model.NotificationLog) error {
 
 	log.UpdatedAt = time.Now()
 
-	result := r.db.Model(&model.NotificationLog{}).Where("id = ?", log.ID).Updates(map[string]interface{}{
+	result := r.db.Model(&notificationDomain.NotificationLog{}).Where("id = ?", log.ID).Updates(map[string]interface{}{
 		"status":              log.Status,
 		"sent_at":             log.SentAt,
 		"delivered_at":        log.DeliveredAt,
@@ -148,7 +148,7 @@ func (r *NotificationLogRepository) MarkAsSent(id uuid.UUID, providerMessageID s
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"status":     model.NotificationStatusSent,
+		"status":     notificationDomain.NotificationStatusSent,
 		"sent_at":    sql.NullTime{Time: now, Valid: true},
 		"updated_at": now,
 	}
@@ -157,7 +157,7 @@ func (r *NotificationLogRepository) MarkAsSent(id uuid.UUID, providerMessageID s
 		updates["provider_message_id"] = sql.NullString{String: providerMessageID, Valid: true}
 	}
 
-	result := r.db.Model(&model.NotificationLog{}).Where("id = ?", id).Updates(updates)
+	result := r.db.Model(&notificationDomain.NotificationLog{}).Where("id = ?", id).Updates(updates)
 	if result.Error != nil {
 		return fmt.Errorf("failed to mark notification as sent: %w", result.Error)
 	}
@@ -176,8 +176,8 @@ func (r *NotificationLogRepository) MarkAsDelivered(id uuid.UUID) error {
 	}
 
 	now := time.Now()
-	result := r.db.Model(&model.NotificationLog{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":       model.NotificationStatusDelivered,
+	result := r.db.Model(&notificationDomain.NotificationLog{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":       notificationDomain.NotificationStatusDelivered,
 		"delivered_at": sql.NullTime{Time: now, Valid: true},
 		"updated_at":   now,
 	})
@@ -201,7 +201,7 @@ func (r *NotificationLogRepository) MarkAsFailed(id uuid.UUID, errorMessage, err
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"status":        model.NotificationStatusFailed,
+		"status":        notificationDomain.NotificationStatusFailed,
 		"failed_at":     sql.NullTime{Time: now, Valid: true},
 		"error_message": sql.NullString{String: errorMessage, Valid: true},
 		"updated_at":    now,
@@ -211,7 +211,7 @@ func (r *NotificationLogRepository) MarkAsFailed(id uuid.UUID, errorMessage, err
 		updates["error_code"] = sql.NullString{String: errorCode, Valid: true}
 	}
 
-	result := r.db.Model(&model.NotificationLog{}).Where("id = ?", id).Updates(updates)
+	result := r.db.Model(&notificationDomain.NotificationLog{}).Where("id = ?", id).Updates(updates)
 	if result.Error != nil {
 		return fmt.Errorf("failed to mark notification as failed: %w", result.Error)
 	}
@@ -232,8 +232,8 @@ func (r *NotificationLogRepository) ScheduleRetry(id uuid.UUID, delay time.Durat
 	now := time.Now()
 	nextRetry := now.Add(delay)
 
-	result := r.db.Model(&model.NotificationLog{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":        model.NotificationStatusRetrying,
+	result := r.db.Model(&notificationDomain.NotificationLog{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":        notificationDomain.NotificationStatusRetrying,
 		"retry_count":   gorm.Expr("retry_count + 1"),
 		"next_retry_at": sql.NullTime{Time: nextRetry, Valid: true},
 		"updated_at":    now,
@@ -251,14 +251,14 @@ func (r *NotificationLogRepository) ScheduleRetry(id uuid.UUID, delay time.Durat
 }
 
 // ListPendingRetries retrieves notifications pending retry
-func (r *NotificationLogRepository) ListPendingRetries(limit int) ([]*model.NotificationLog, error) {
+func (r *NotificationLogRepository) ListPendingRetries(limit int) ([]*notificationDomain.NotificationLog, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 
-	var logs []*model.NotificationLog
+	var logs []*notificationDomain.NotificationLog
 	if err := r.db.Where("status = ? AND next_retry_at IS NOT NULL AND next_retry_at <= ? AND retry_count < max_retries",
-		model.NotificationStatusRetrying, time.Now()).
+		notificationDomain.NotificationStatusRetrying, time.Now()).
 		Order("next_retry_at ASC").
 		Limit(limit).
 		Find(&logs).Error; err != nil {
@@ -269,7 +269,7 @@ func (r *NotificationLogRepository) ListPendingRetries(limit int) ([]*model.Noti
 }
 
 // GetDeliveryStats retrieves delivery statistics for a merchant and channel
-func (r *NotificationLogRepository) GetDeliveryStats(merchantID uuid.UUID, channel model.NotificationChannel, startTime, endTime time.Time) (map[string]int64, error) {
+func (r *NotificationLogRepository) GetDeliveryStats(merchantID uuid.UUID, channel notificationDomain.NotificationChannel, startTime, endTime time.Time) (map[string]int64, error) {
 	if merchantID == uuid.Nil {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
@@ -280,7 +280,7 @@ func (r *NotificationLogRepository) GetDeliveryStats(merchantID uuid.UUID, chann
 	}
 
 	var results []result
-	if err := r.db.Model(&model.NotificationLog{}).
+	if err := r.db.Model(&notificationDomain.NotificationLog{}).
 		Select("status, COUNT(*) as count").
 		Where("merchant_id = ? AND channel = ? AND created_at >= ? AND created_at <= ?",
 			merchantID, channel, startTime, endTime).

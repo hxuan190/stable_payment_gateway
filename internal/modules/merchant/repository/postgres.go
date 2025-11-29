@@ -4,9 +4,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 	"gorm.io/gorm"
-
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
 )
 
 var (
@@ -25,7 +24,7 @@ func NewMerchantRepository(db *gorm.DB) *MerchantRepository {
 	}
 }
 
-func (r *MerchantRepository) Create(merchant *model.Merchant) error {
+func (r *MerchantRepository) Create(merchant *domain.Merchant) error {
 	if merchant == nil {
 		return errors.New("merchant cannot be nil")
 	}
@@ -48,12 +47,12 @@ func (r *MerchantRepository) Create(merchant *model.Merchant) error {
 	return nil
 }
 
-func (r *MerchantRepository) GetByID(id string) (*model.Merchant, error) {
+func (r *MerchantRepository) GetByID(id string) (*domain.Merchant, error) {
 	if id == "" {
 		return nil, ErrInvalidMerchantID
 	}
 
-	merchant := &model.Merchant{}
+	merchant := &domain.Merchant{}
 	if err := r.db.Where("id = ?", id).First(merchant).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrMerchantNotFound
@@ -64,12 +63,12 @@ func (r *MerchantRepository) GetByID(id string) (*model.Merchant, error) {
 	return merchant, nil
 }
 
-func (r *MerchantRepository) GetByEmail(email string) (*model.Merchant, error) {
+func (r *MerchantRepository) GetByEmail(email string) (*domain.Merchant, error) {
 	if email == "" {
 		return nil, errors.New("email cannot be empty")
 	}
 
-	merchant := &model.Merchant{}
+	merchant := &domain.Merchant{}
 	if err := r.db.Where("email = ?", email).First(merchant).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrMerchantNotFound
@@ -80,12 +79,12 @@ func (r *MerchantRepository) GetByEmail(email string) (*model.Merchant, error) {
 	return merchant, nil
 }
 
-func (r *MerchantRepository) GetByAPIKey(apiKey string) (*model.Merchant, error) {
+func (r *MerchantRepository) GetByAPIKey(apiKey string) (*domain.Merchant, error) {
 	if apiKey == "" {
 		return nil, errors.New("API key cannot be empty")
 	}
 
-	merchant := &model.Merchant{}
+	merchant := &domain.Merchant{}
 	if err := r.db.Where("api_key = ?", apiKey).First(merchant).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrMerchantNotFound
@@ -96,7 +95,7 @@ func (r *MerchantRepository) GetByAPIKey(apiKey string) (*model.Merchant, error)
 	return merchant, nil
 }
 
-func (r *MerchantRepository) Update(merchant *model.Merchant) error {
+func (r *MerchantRepository) Update(merchant *domain.Merchant) error {
 	if merchant == nil {
 		return errors.New("merchant cannot be nil")
 	}
@@ -106,7 +105,7 @@ func (r *MerchantRepository) Update(merchant *model.Merchant) error {
 
 	merchant.UpdatedAt = time.Now()
 
-	result := r.db.Model(&model.Merchant{}).Where("id = ?", merchant.ID).Updates(merchant)
+	result := r.db.Model(&domain.Merchant{}).Where("id = ?", merchant.ID).Updates(merchant)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -126,7 +125,7 @@ func (r *MerchantRepository) UpdateKYCStatus(id string, status string) error {
 		return errors.New("KYC status cannot be empty")
 	}
 
-	result := r.db.Model(&model.Merchant{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := r.db.Model(&domain.Merchant{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"kyc_status": status,
 		"updated_at": time.Now(),
 	})
@@ -142,7 +141,7 @@ func (r *MerchantRepository) UpdateKYCStatus(id string, status string) error {
 	return nil
 }
 
-func (r *MerchantRepository) List(limit, offset int) ([]*model.Merchant, error) {
+func (r *MerchantRepository) List(limit, offset int) ([]*domain.Merchant, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -150,7 +149,7 @@ func (r *MerchantRepository) List(limit, offset int) ([]*model.Merchant, error) 
 		offset = 0
 	}
 
-	var merchants []*model.Merchant
+	var merchants []*domain.Merchant
 	if err := r.db.Order("created_at DESC").Limit(limit).Offset(offset).Find(&merchants).Error; err != nil {
 		return nil, err
 	}
@@ -158,7 +157,7 @@ func (r *MerchantRepository) List(limit, offset int) ([]*model.Merchant, error) 
 	return merchants, nil
 }
 
-func (r *MerchantRepository) ListByKYCStatus(status string, limit, offset int) ([]*model.Merchant, error) {
+func (r *MerchantRepository) ListByKYCStatus(status string, limit, offset int) ([]*domain.Merchant, error) {
 	if status == "" {
 		return nil, errors.New("KYC status cannot be empty")
 	}
@@ -169,7 +168,7 @@ func (r *MerchantRepository) ListByKYCStatus(status string, limit, offset int) (
 		offset = 0
 	}
 
-	var merchants []*model.Merchant
+	var merchants []*domain.Merchant
 	if err := r.db.Where("kyc_status = ?", status).Order("kyc_submitted_at ASC").Limit(limit).Offset(offset).Find(&merchants).Error; err != nil {
 		return nil, err
 	}
@@ -182,7 +181,7 @@ func (r *MerchantRepository) Delete(id string) error {
 		return ErrInvalidMerchantID
 	}
 
-	result := r.db.Where("id = ?", id).Delete(&model.Merchant{})
+	result := r.db.Where("id = ?", id).Delete(&domain.Merchant{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -196,7 +195,7 @@ func (r *MerchantRepository) Delete(id string) error {
 
 func (r *MerchantRepository) Count() (int64, error) {
 	var count int64
-	if err := r.db.Model(&model.Merchant{}).Count(&count).Error; err != nil {
+	if err := r.db.Model(&domain.Merchant{}).Count(&count).Error; err != nil {
 		return 0, err
 	}
 
@@ -209,7 +208,7 @@ func (r *MerchantRepository) CountByKYCStatus(status string) (int64, error) {
 	}
 
 	var count int64
-	if err := r.db.Model(&model.Merchant{}).Where("kyc_status = ?", status).Count(&count).Error; err != nil {
+	if err := r.db.Model(&domain.Merchant{}).Where("kyc_status = ?", status).Count(&count).Error; err != nil {
 		return 0, err
 	}
 

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/treasury/domain"
 	"github.com/shopspring/decimal"
 )
 
@@ -29,7 +29,7 @@ func NewTreasuryOperationRepository(db *sql.DB) *TreasuryOperationRepository {
 }
 
 // Create inserts a new treasury operation
-func (r *TreasuryOperationRepository) Create(op *model.TreasuryOperation) error {
+func (r *TreasuryOperationRepository) Create(op *domain.TreasuryOperation) error {
 	if op == nil {
 		return errors.New("treasury operation cannot be nil")
 	}
@@ -121,7 +121,7 @@ func (r *TreasuryOperationRepository) Create(op *model.TreasuryOperation) error 
 }
 
 // GetByID retrieves a treasury operation by ID
-func (r *TreasuryOperationRepository) GetByID(id uuid.UUID) (*model.TreasuryOperation, error) {
+func (r *TreasuryOperationRepository) GetByID(id uuid.UUID) (*domain.TreasuryOperation, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("invalid treasury operation ID")
 	}
@@ -143,7 +143,7 @@ func (r *TreasuryOperationRepository) GetByID(id uuid.UUID) (*model.TreasuryOper
 		WHERE id = $1
 	`
 
-	op := &model.TreasuryOperation{}
+	op := &domain.TreasuryOperation{}
 	err := r.db.QueryRow(query, id).Scan(
 		&op.ID,
 		&op.OperationType,
@@ -195,7 +195,7 @@ func (r *TreasuryOperationRepository) GetByID(id uuid.UUID) (*model.TreasuryOper
 }
 
 // GetByTxHash retrieves a treasury operation by transaction hash
-func (r *TreasuryOperationRepository) GetByTxHash(txHash string) (*model.TreasuryOperation, error) {
+func (r *TreasuryOperationRepository) GetByTxHash(txHash string) (*domain.TreasuryOperation, error) {
 	if txHash == "" {
 		return nil, errors.New("transaction hash cannot be empty")
 	}
@@ -217,7 +217,7 @@ func (r *TreasuryOperationRepository) GetByTxHash(txHash string) (*model.Treasur
 		WHERE tx_hash = $1
 	`
 
-	op := &model.TreasuryOperation{}
+	op := &domain.TreasuryOperation{}
 	err := r.db.QueryRow(query, sql.NullString{String: txHash, Valid: true}).Scan(
 		&op.ID,
 		&op.OperationType,
@@ -269,7 +269,7 @@ func (r *TreasuryOperationRepository) GetByTxHash(txHash string) (*model.Treasur
 }
 
 // ListByWallet retrieves treasury operations by wallet ID
-func (r *TreasuryOperationRepository) ListByWallet(walletID uuid.UUID, limit, offset int) ([]*model.TreasuryOperation, error) {
+func (r *TreasuryOperationRepository) ListByWallet(walletID uuid.UUID, limit, offset int) ([]*domain.TreasuryOperation, error) {
 	if walletID == uuid.Nil {
 		return nil, errors.New("wallet ID cannot be empty")
 	}
@@ -306,9 +306,9 @@ func (r *TreasuryOperationRepository) ListByWallet(walletID uuid.UUID, limit, of
 	}
 	defer rows.Close()
 
-	operations := make([]*model.TreasuryOperation, 0)
+	operations := make([]*domain.TreasuryOperation, 0)
 	for rows.Next() {
-		op := &model.TreasuryOperation{}
+		op := &domain.TreasuryOperation{}
 		err := rows.Scan(
 			&op.ID,
 			&op.OperationType,
@@ -362,7 +362,7 @@ func (r *TreasuryOperationRepository) ListByWallet(walletID uuid.UUID, limit, of
 }
 
 // ListByType retrieves treasury operations by type
-func (r *TreasuryOperationRepository) ListByType(opType model.TreasuryOperationType, limit, offset int) ([]*model.TreasuryOperation, error) {
+func (r *TreasuryOperationRepository) ListByType(opType domain.TreasuryOperationType, limit, offset int) ([]*domain.TreasuryOperation, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -395,9 +395,9 @@ func (r *TreasuryOperationRepository) ListByType(opType model.TreasuryOperationT
 	}
 	defer rows.Close()
 
-	operations := make([]*model.TreasuryOperation, 0)
+	operations := make([]*domain.TreasuryOperation, 0)
 	for rows.Next() {
-		op := &model.TreasuryOperation{}
+		op := &domain.TreasuryOperation{}
 		err := rows.Scan(
 			&op.ID,
 			&op.OperationType,
@@ -451,7 +451,7 @@ func (r *TreasuryOperationRepository) ListByType(opType model.TreasuryOperationT
 }
 
 // ListPendingSignatures retrieves operations pending multi-sig signatures
-func (r *TreasuryOperationRepository) ListPendingSignatures() ([]*model.TreasuryOperation, error) {
+func (r *TreasuryOperationRepository) ListPendingSignatures() ([]*domain.TreasuryOperation, error) {
 	query := `
 		SELECT
 			id, operation_type,
@@ -477,9 +477,9 @@ func (r *TreasuryOperationRepository) ListPendingSignatures() ([]*model.Treasury
 	}
 	defer rows.Close()
 
-	operations := make([]*model.TreasuryOperation, 0)
+	operations := make([]*domain.TreasuryOperation, 0)
 	for rows.Next() {
-		op := &model.TreasuryOperation{}
+		op := &domain.TreasuryOperation{}
 		err := rows.Scan(
 			&op.ID,
 			&op.OperationType,
@@ -533,7 +533,7 @@ func (r *TreasuryOperationRepository) ListPendingSignatures() ([]*model.Treasury
 }
 
 // Update updates an existing treasury operation
-func (r *TreasuryOperationRepository) Update(op *model.TreasuryOperation) error {
+func (r *TreasuryOperationRepository) Update(op *domain.TreasuryOperation) error {
 	if op == nil {
 		return errors.New("treasury operation cannot be nil")
 	}
@@ -622,7 +622,7 @@ func (r *TreasuryOperationRepository) MarkAsBroadcasted(id uuid.UUID, txHash str
 	result, err := r.db.Exec(
 		query,
 		id,
-		model.TreasuryOpStatusBroadcasted,
+		domain.TreasuryOpStatusBroadcasted,
 		sql.NullString{String: txHash, Valid: txHash != ""},
 		sql.NullTime{Time: now, Valid: true},
 	)
@@ -658,7 +658,7 @@ func (r *TreasuryOperationRepository) MarkAsConfirmed(id uuid.UUID) error {
 	`
 
 	now := time.Now()
-	result, err := r.db.Exec(query, id, model.TreasuryOpStatusConfirmed, sql.NullTime{Time: now, Valid: true})
+	result, err := r.db.Exec(query, id, domain.TreasuryOpStatusConfirmed, sql.NullTime{Time: now, Valid: true})
 	if err != nil {
 		return fmt.Errorf("failed to mark operation as confirmed: %w", err)
 	}
@@ -696,7 +696,7 @@ func (r *TreasuryOperationRepository) MarkAsFailed(id uuid.UUID, errorMessage, e
 	result, err := r.db.Exec(
 		query,
 		id,
-		model.TreasuryOpStatusFailed,
+		domain.TreasuryOpStatusFailed,
 		sql.NullTime{Time: now, Valid: true},
 		sql.NullString{String: errorMessage, Valid: true},
 		sql.NullString{String: errorCode, Valid: errorCode != ""},
@@ -779,10 +779,10 @@ func (r *TreasuryOperationRepository) GetOperationStats(startTime, endTime time.
 		}
 
 		stats[opType] = map[string]interface{}{
-			"count":           count,
+			"count":            count,
 			"total_amount_usd": totalAmountUSD,
-			"confirmed_count": confirmedCount,
-			"failed_count":    failedCount,
+			"confirmed_count":  confirmedCount,
+			"failed_count":     failedCount,
 		}
 	}
 

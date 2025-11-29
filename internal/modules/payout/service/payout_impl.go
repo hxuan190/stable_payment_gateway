@@ -9,8 +9,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	payoutDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/shopspring/decimal"
 )
 
@@ -118,7 +119,7 @@ func CalculatePayoutFee(amountVND decimal.Decimal) decimal.Decimal {
 // 2. Calculate the payout fee
 // 3. Reserve the balance (lock it from being used)
 // 4. Create a payout record with "requested" status
-func (s *PayoutService) RequestPayout(input RequestPayoutInput) (*model.Payout, error) {
+func (s *PayoutService) RequestPayout(input RequestPayoutInput) (*payoutDomain.Payout, error) {
 	// Validate input
 	if err := input.Validate(); err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)
@@ -135,7 +136,7 @@ func (s *PayoutService) RequestPayout(input RequestPayoutInput) (*model.Payout, 
 	feeVND := CalculatePayoutFee(input.AmountVND)
 
 	// Create payout record
-	payout := &model.Payout{
+	payout := &payoutDomain.Payout{
 		ID:                uuid.New().String(),
 		MerchantID:        input.MerchantID,
 		AmountVND:         input.AmountVND,
@@ -145,11 +146,11 @@ func (s *PayoutService) RequestPayout(input RequestPayoutInput) (*model.Payout, 
 		BankAccountNumber: input.BankAccountNumber,
 		BankName:          input.BankName,
 		BankBranch:        sql.NullString{String: input.BankBranch, Valid: input.BankBranch != ""},
-		Status:            model.PayoutStatusRequested,
+		Status:            payoutDomain.PayoutStatusRequested,
 		RequestedBy:       input.MerchantID, // Merchant requesting their own payout
 		RetryCount:        0,
 		Notes:             sql.NullString{String: input.Notes, Valid: input.Notes != ""},
-		Metadata:          model.JSONBMap{},
+		Metadata:          database.JSONBMap{},
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
 	}
@@ -162,7 +163,7 @@ func (s *PayoutService) RequestPayout(input RequestPayoutInput) (*model.Payout, 
 	// Balance reservation and ledger recording moved to ledger module
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, fmt.Errorf("failed to commit payout request: %w", err)
 	}
 
@@ -170,7 +171,7 @@ func (s *PayoutService) RequestPayout(input RequestPayoutInput) (*model.Payout, 
 }
 
 // GetPayoutByID retrieves a payout by its ID
-func (s *PayoutService) GetPayoutByID(payoutID string) (*model.Payout, error) {
+func (s *PayoutService) GetPayoutByID(payoutID string) (*payoutDomain.Payout, error) {
 	if payoutID == "" {
 		return nil, ErrPayoutNotFound
 	}
@@ -187,7 +188,7 @@ func (s *PayoutService) GetPayoutByID(payoutID string) (*model.Payout, error) {
 }
 
 // ListPayoutsByMerchant retrieves all payouts for a merchant with pagination
-func (s *PayoutService) ListPayoutsByMerchant(merchantID string, limit, offset int) ([]*model.Payout, error) {
+func (s *PayoutService) ListPayoutsByMerchant(merchantID string, limit, offset int) ([]*payoutDomain.Payout, error) {
 	if merchantID == "" {
 		return nil, ErrPayoutMerchantNotFound
 	}
@@ -201,8 +202,8 @@ func (s *PayoutService) ListPayoutsByMerchant(merchantID string, limit, offset i
 }
 
 // ListPendingPayouts retrieves all payouts awaiting approval
-func (s *PayoutService) ListPendingPayouts() ([]*model.Payout, error) {
-	payouts, err := s.payoutRepo.ListByStatus(model.PayoutStatusRequested, 100, 0)
+func (s *PayoutService) ListPendingPayouts() ([]*payoutDomain.Payout, error) {
+	payouts, err := s.payoutRepo.ListByStatus(payoutDomain.PayoutStatusRequested, 100, 0)
 	return payouts, err
 }
 
@@ -277,7 +278,7 @@ func (s *PayoutService) RejectPayout(payoutID, reason string) error {
 	// Ledger recording moved to ledger module
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit payout rejection: %w", err)
 	}
 
@@ -314,13 +315,13 @@ func (s *PayoutService) CompletePayout(payoutID, bankReferenceNumber, processedB
 	}
 
 	// Check payout status - must be approved or processing
-	if payout.Status != model.PayoutStatusApproved && payout.Status != model.PayoutStatusProcessing {
+	if payout.Status != payoutDomain.PayoutStatusApproved && payout.Status != payoutDomain.PayoutStatusProcessing {
 		return fmt.Errorf("%w: current status is %s, expected approved or processing",
 			ErrPayoutInvalidStatus, payout.Status)
 	}
 
 	// Update payout record
-	payout.Status = model.PayoutStatusCompleted
+	payout.Status = payoutDomain.PayoutStatusCompleted
 	payout.BankReferenceNumber = sql.NullString{String: bankReferenceNumber, Valid: true}
 	payout.ProcessedBy = sql.NullString{String: processedBy, Valid: true}
 	now := time.Now()
@@ -335,7 +336,7 @@ func (s *PayoutService) CompletePayout(payoutID, bankReferenceNumber, processedB
 	// Balance deduction and ledger recording moved to ledger module
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit payout completion: %w", err)
 	}
 
@@ -366,15 +367,15 @@ func (s *PayoutService) FailPayout(payoutID, failureReason, processedBy string) 
 	}
 
 	// Check payout status
-	if payout.Status == model.PayoutStatusCompleted {
+	if payout.Status == payoutDomain.PayoutStatusCompleted {
 		return ErrPayoutAlreadyProcessed
 	}
-	if payout.Status == model.PayoutStatusFailed || payout.Status == model.PayoutStatusRejected {
+	if payout.Status == payoutDomain.PayoutStatusFailed || payout.Status == payoutDomain.PayoutStatusRejected {
 		return fmt.Errorf("payout already in terminal status: %s", payout.Status)
 	}
 
 	// Update payout record
-	payout.Status = model.PayoutStatusFailed
+	payout.Status = payoutDomain.PayoutStatusFailed
 	payout.FailureReason = sql.NullString{String: failureReason, Valid: true}
 	payout.ProcessedBy = sql.NullString{String: processedBy, Valid: processedBy != ""}
 	payout.RetryCount++
@@ -387,7 +388,7 @@ func (s *PayoutService) FailPayout(payoutID, failureReason, processedBy string) 
 	// Balance release and ledger recording moved to ledger module
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit payout failure: %w", err)
 	}
 
@@ -397,32 +398,32 @@ func (s *PayoutService) FailPayout(payoutID, failureReason, processedBy string) 
 // GetPayoutStats retrieves statistics about payouts
 func (s *PayoutService) GetPayoutStats() (*PayoutStats, error) {
 	// Get counts by status
-	requestedCount, err := s.payoutRepo.CountByStatus(model.PayoutStatusRequested)
+	requestedCount, err := s.payoutRepo.CountByStatus(payoutDomain.PayoutStatusRequested)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count requested payouts: %w", err)
 	}
 
-	approvedCount, err := s.payoutRepo.CountByStatus(model.PayoutStatusApproved)
+	approvedCount, err := s.payoutRepo.CountByStatus(payoutDomain.PayoutStatusApproved)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count approved payouts: %w", err)
 	}
 
-	processingCount, err := s.payoutRepo.CountByStatus(model.PayoutStatusProcessing)
+	processingCount, err := s.payoutRepo.CountByStatus(payoutDomain.PayoutStatusProcessing)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count processing payouts: %w", err)
 	}
 
-	completedCount, err := s.payoutRepo.CountByStatus(model.PayoutStatusCompleted)
+	completedCount, err := s.payoutRepo.CountByStatus(payoutDomain.PayoutStatusCompleted)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count completed payouts: %w", err)
 	}
 
-	rejectedCount, err := s.payoutRepo.CountByStatus(model.PayoutStatusRejected)
+	rejectedCount, err := s.payoutRepo.CountByStatus(payoutDomain.PayoutStatusRejected)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count rejected payouts: %w", err)
 	}
 
-	failedCount, err := s.payoutRepo.CountByStatus(model.PayoutStatusFailed)
+	failedCount, err := s.payoutRepo.CountByStatus(payoutDomain.PayoutStatusFailed)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count failed payouts: %w", err)
 	}

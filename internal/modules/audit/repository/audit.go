@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/audit/domain"
 )
 
 var (
@@ -26,15 +26,15 @@ func NewAuditRepository(db *gorm.DB) *AuditRepository {
 }
 
 type AuditFilter struct {
-	ActorType      *model.ActorType
+	ActorType      *domain.ActorType
 	ActorID        *string
 	ActorEmail     *string
 	ActorIPAddress *string
 	Action         *string
-	ActionCategory *model.ActionCategory
+	ActionCategory *domain.ActionCategory
 	ResourceType   *string
 	ResourceID     *string
-	Status         *model.AuditStatus
+	Status         *domain.AuditStatus
 	RequestID      *string
 	CorrelationID  *string
 	StartTime      *time.Time
@@ -45,7 +45,7 @@ type AuditFilter struct {
 	SortOrder      string
 }
 
-func (r *AuditRepository) Create(log *model.AuditLog) error {
+func (r *AuditRepository) Create(log *domain.AuditLog) error {
 	if log == nil {
 		return errors.New("audit log cannot be nil")
 	}
@@ -62,7 +62,7 @@ func (r *AuditRepository) Create(log *model.AuditLog) error {
 	return nil
 }
 
-func (r *AuditRepository) CreateBatch(logs []*model.AuditLog) error {
+func (r *AuditRepository) CreateBatch(logs []*domain.AuditLog) error {
 	if len(logs) == 0 {
 		return errors.New("logs array cannot be empty")
 	}
@@ -81,12 +81,12 @@ func (r *AuditRepository) CreateBatch(logs []*model.AuditLog) error {
 	return nil
 }
 
-func (r *AuditRepository) GetByID(id string) (*model.AuditLog, error) {
+func (r *AuditRepository) GetByID(id string) (*domain.AuditLog, error) {
 	if id == "" {
 		return nil, errors.New("audit log ID cannot be empty")
 	}
 
-	log := &model.AuditLog{}
+	log := &domain.AuditLog{}
 	if err := r.db.Where("id = ?", id).First(log).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrAuditLogNotFound
@@ -97,8 +97,8 @@ func (r *AuditRepository) GetByID(id string) (*model.AuditLog, error) {
 	return log, nil
 }
 
-func (r *AuditRepository) List(filter AuditFilter) ([]*model.AuditLog, error) {
-	query := r.db.Model(&model.AuditLog{})
+func (r *AuditRepository) List(filter AuditFilter) ([]*domain.AuditLog, error) {
+	query := r.db.Model(&domain.AuditLog{})
 
 	if filter.ActorType != nil {
 		query = query.Where("actor_type = ?", *filter.ActorType)
@@ -168,7 +168,7 @@ func (r *AuditRepository) List(filter AuditFilter) ([]*model.AuditLog, error) {
 		query = query.Offset(filter.Offset)
 	}
 
-	var logs []*model.AuditLog
+	var logs []*domain.AuditLog
 	if err := query.Find(&logs).Error; err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func (r *AuditRepository) List(filter AuditFilter) ([]*model.AuditLog, error) {
 }
 
 func (r *AuditRepository) Count(filter AuditFilter) (int64, error) {
-	query := r.db.Model(&model.AuditLog{})
+	query := r.db.Model(&domain.AuditLog{})
 
 	if filter.ActorType != nil {
 		query = query.Where("actor_type = ?", *filter.ActorType)
@@ -212,7 +212,7 @@ func (r *AuditRepository) Count(filter AuditFilter) (int64, error) {
 	return count, nil
 }
 
-func (r *AuditRepository) GetByResource(resourceType, resourceID string, limit, offset int) ([]*model.AuditLog, error) {
+func (r *AuditRepository) GetByResource(resourceType, resourceID string, limit, offset int) ([]*domain.AuditLog, error) {
 	filter := AuditFilter{
 		ResourceType: &resourceType,
 		ResourceID:   &resourceID,
@@ -222,7 +222,7 @@ func (r *AuditRepository) GetByResource(resourceType, resourceID string, limit, 
 	return r.List(filter)
 }
 
-func (r *AuditRepository) GetByActor(actorType model.ActorType, actorID string, limit, offset int) ([]*model.AuditLog, error) {
+func (r *AuditRepository) GetByActor(actorType domain.ActorType, actorID string, limit, offset int) ([]*domain.AuditLog, error) {
 	filter := AuditFilter{
 		ActorType: &actorType,
 		ActorID:   &actorID,
@@ -232,16 +232,16 @@ func (r *AuditRepository) GetByActor(actorType model.ActorType, actorID string, 
 	return r.List(filter)
 }
 
-func (r *AuditRepository) GetByRequestID(requestID string) ([]*model.AuditLog, error) {
+func (r *AuditRepository) GetByRequestID(requestID string) ([]*domain.AuditLog, error) {
 	filter := AuditFilter{
 		RequestID: &requestID,
 	}
 	return r.List(filter)
 }
 
-func (r *AuditRepository) GetRecentFailures(hours int, limit int) ([]*model.AuditLog, error) {
+func (r *AuditRepository) GetRecentFailures(hours int, limit int) ([]*domain.AuditLog, error) {
 	startTime := time.Now().Add(-time.Duration(hours) * time.Hour)
-	failedStatus := model.AuditStatusFailed
+	failedStatus := domain.AuditStatusFailed
 
 	filter := AuditFilter{
 		Status:    &failedStatus,

@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	complianceDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/port"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -21,7 +21,7 @@ import (
 // ComplianceService defines the interface for compliance-related operations
 // Note: This is a secondary port used by the handler for Travel Rule orchestration
 type ComplianceService interface {
-	StoreTravelRuleData(ctx context.Context, data *model.TravelRuleData) error
+	StoreTravelRuleData(ctx context.Context, data *complianceDomain.TravelRuleData) error
 }
 
 // ExchangeRateService defines the interface for exchange rate operations
@@ -149,7 +149,7 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 
 		// Convert DTO to model and store Travel Rule data
 		// Note: model.TravelRuleData is still used here as we haven't refactored that part yet
-		travelRuleData := &model.TravelRuleData{
+		travelRuleData := &complianceDomain.TravelRuleData{
 			PaymentID:           payment.ID,
 			PayerFullName:       req.TravelRule.PayerFullName,
 			PayerWalletAddress:  req.TravelRule.PayerWalletAddress,

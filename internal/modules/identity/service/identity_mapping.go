@@ -8,8 +8,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	identityDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/identity/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/identity/repository"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
+	userDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/user/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/shopspring/decimal"
 )
@@ -31,7 +34,7 @@ type KYCProvider interface {
 	CreateApplicant(ctx context.Context, fullName, email string) (applicantID string, err error)
 
 	// GetApplicantStatus retrieves the current KYC status
-	GetApplicantStatus(ctx context.Context, applicantID string) (status model.KYCStatus, err error)
+	GetApplicantStatus(ctx context.Context, applicantID string) (status merchantDomain.KYCStatus, err error)
 
 	// VerifyFaceLiveness triggers face liveness check
 	VerifyFaceLiveness(ctx context.Context, applicantID string) (passed bool, score float64, err error)
@@ -85,7 +88,7 @@ func NewIdentityMappingService(
 // - ErrWalletNotRecognized if wallet is new/unknown
 // - ErrKYCNotVerified if wallet exists but KYC not approved
 // - ErrUserBlocked if user is sanctioned or flagged
-func (s *IdentityMappingService) RecognizeWallet(ctx context.Context, walletAddress string, blockchain model.Chain) (*model.WalletIdentityMapping, *model.User, error) {
+func (s *IdentityMappingService) RecognizeWallet(ctx context.Context, walletAddress string, blockchain paymentDomain.Chain) (*identityDomain.WalletIdentityMapping, *userDomain.User, error) {
 	if walletAddress == "" {
 		return nil, nil, errors.New("wallet address cannot be empty")
 	}
@@ -96,7 +99,7 @@ func (s *IdentityMappingService) RecognizeWallet(ctx context.Context, walletAddr
 
 	if err == nil && cachedData != "" {
 		// Cache hit! Deserialize and return
-		var mapping model.WalletIdentityMapping
+		var mapping identityDomain.WalletIdentityMapping
 		if err := json.Unmarshal([]byte(cachedData), &mapping); err == nil {
 			// Load full user data
 			user, err := s.userRepo.GetByID(mapping.UserID)
@@ -158,10 +161,10 @@ func (s *IdentityMappingService) RecognizeWallet(ctx context.Context, walletAddr
 func (s *IdentityMappingService) GetOrCreateWalletMapping(
 	ctx context.Context,
 	walletAddress string,
-	blockchain model.Chain,
+	blockchain paymentDomain.Chain,
 	fullName string,
 	email string,
-) (*model.WalletIdentityMapping, *model.User, bool, error) {
+) (*identityDomain.WalletIdentityMapping, *userDomain.User, bool, error) {
 	// Try to recognize wallet first
 	mapping, user, err := s.RecognizeWallet(ctx, walletAddress, blockchain)
 
@@ -187,9 +190,9 @@ func (s *IdentityMappingService) GetOrCreateWalletMapping(
 func (s *IdentityMappingService) CreateWalletMappingAfterKYC(
 	ctx context.Context,
 	walletAddress string,
-	blockchain model.Chain,
+	blockchain paymentDomain.Chain,
 	userID uuid.UUID,
-) (*model.WalletIdentityMapping, error) {
+) (*identityDomain.WalletIdentityMapping, error) {
 	// Verify user exists and has verified KYC
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
@@ -216,11 +219,11 @@ func (s *IdentityMappingService) CreateWalletMappingAfterKYC(
 	}
 
 	// Create new wallet mapping
-	mapping := &model.WalletIdentityMapping{
+	mapping := &identityDomain.WalletIdentityMapping{
 		ID:                uuid.New(),
 		WalletAddress:     walletAddress,
 		Blockchain:        blockchain,
-		WalletAddressHash: model.ComputeWalletHash(walletAddress),
+		WalletAddressHash: identityDomain.ComputeWalletHash(walletAddress),
 		UserID:            userID,
 		KYCStatus:         user.KYCStatus,
 		FirstSeenAt:       time.Now(),
@@ -249,7 +252,7 @@ func (s *IdentityMappingService) CreateWalletMappingAfterKYC(
 func (s *IdentityMappingService) UpdateWalletActivity(
 	ctx context.Context,
 	walletAddress string,
-	blockchain model.Chain,
+	blockchain paymentDomain.Chain,
 	paymentID uuid.UUID,
 	amountUSD decimal.Decimal,
 ) error {
@@ -284,13 +287,13 @@ func (s *IdentityMappingService) UpdateWalletActivity(
 // - KYC status changes
 // - Wallet is flagged/unflagged
 // - User is sanctioned
-func (s *IdentityMappingService) InvalidateWalletCache(ctx context.Context, walletAddress string, blockchain model.Chain) error {
+func (s *IdentityMappingService) InvalidateWalletCache(ctx context.Context, walletAddress string, blockchain paymentDomain.Chain) error {
 	cacheKey := s.getCacheKey(walletAddress, blockchain)
 	return s.cache.Delete(ctx, cacheKey)
 }
 
 // FlagWallet flags a wallet as suspicious and invalidates cache
-func (s *IdentityMappingService) FlagWallet(ctx context.Context, walletAddress string, blockchain model.Chain, reason string) error {
+func (s *IdentityMappingService) FlagWallet(ctx context.Context, walletAddress string, blockchain paymentDomain.Chain, reason string) error {
 	mapping, err := s.walletMappingRepo.GetByWalletAddress(walletAddress, blockchain)
 	if err != nil {
 		return fmt.Errorf("failed to get wallet mapping: %w", err)
@@ -307,7 +310,7 @@ func (s *IdentityMappingService) FlagWallet(ctx context.Context, walletAddress s
 }
 
 // UnflagWallet removes flag from a wallet and refreshes cache
-func (s *IdentityMappingService) UnflagWallet(ctx context.Context, walletAddress string, blockchain model.Chain) error {
+func (s *IdentityMappingService) UnflagWallet(ctx context.Context, walletAddress string, blockchain paymentDomain.Chain) error {
 	mapping, err := s.walletMappingRepo.GetByWalletAddress(walletAddress, blockchain)
 	if err != nil {
 		return fmt.Errorf("failed to get wallet mapping: %w", err)
@@ -327,7 +330,7 @@ func (s *IdentityMappingService) UnflagWallet(ctx context.Context, walletAddress
 }
 
 // GetWalletsByUser retrieves all wallet mappings for a user
-func (s *IdentityMappingService) GetWalletsByUser(ctx context.Context, userID uuid.UUID) ([]*model.WalletIdentityMapping, error) {
+func (s *IdentityMappingService) GetWalletsByUser(ctx context.Context, userID uuid.UUID) ([]*identityDomain.WalletIdentityMapping, error) {
 	return s.walletMappingRepo.GetByUserID(userID)
 }
 
@@ -360,12 +363,12 @@ func (s *IdentityMappingService) GetCacheStats(ctx context.Context) (map[string]
 // Helper functions
 
 // getCacheKey generates Redis cache key for wallet mapping
-func (s *IdentityMappingService) getCacheKey(walletAddress string, blockchain model.Chain) string {
+func (s *IdentityMappingService) getCacheKey(walletAddress string, blockchain paymentDomain.Chain) string {
 	return fmt.Sprintf("wallet_identity:%s:%s", blockchain, walletAddress)
 }
 
 // cacheWalletMapping caches a wallet mapping in Redis
-func (s *IdentityMappingService) cacheWalletMapping(ctx context.Context, mapping *model.WalletIdentityMapping) error {
+func (s *IdentityMappingService) cacheWalletMapping(ctx context.Context, mapping *identityDomain.WalletIdentityMapping) error {
 	if mapping == nil {
 		return errors.New("mapping cannot be nil")
 	}

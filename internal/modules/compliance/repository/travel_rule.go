@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/crypto"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
@@ -22,11 +22,11 @@ var (
 
 // TravelRuleRepository defines the interface for travel rule data access
 type TravelRuleRepository interface {
-	Create(ctx context.Context, data *model.TravelRuleData) error
-	Update(ctx context.Context, data *model.TravelRuleData) error
-	GetByID(ctx context.Context, id string) (*model.TravelRuleData, error)
-	GetByPaymentID(ctx context.Context, paymentID string) (*model.TravelRuleData, error)
-	List(ctx context.Context, filter TravelRuleFilter) ([]*model.TravelRuleData, error)
+	Create(ctx context.Context, data *domain.TravelRuleData) error
+	Update(ctx context.Context, data *domain.TravelRuleData) error
+	GetByID(ctx context.Context, id string) (*domain.TravelRuleData, error)
+	GetByPaymentID(ctx context.Context, paymentID string) (*domain.TravelRuleData, error)
+	List(ctx context.Context, filter TravelRuleFilter) ([]*domain.TravelRuleData, error)
 	Delete(ctx context.Context, id string) error
 	UpdateRiskAssessment(ctx context.Context, id string, riskLevel string, riskScore float64) error
 	MarkAsReported(ctx context.Context, id string, reportReference string) error
@@ -63,7 +63,7 @@ func NewTravelRuleRepository(db *sql.DB, cipher *crypto.AES256GCM, log *logger.L
 // Create creates a new travel rule data record
 // CRITICAL: Used by ComplianceService.StoreTravelRuleData
 // PII fields are encrypted before storage using AES-256-GCM
-func (r *travelRuleRepositoryImpl) Create(ctx context.Context, data *model.TravelRuleData) error {
+func (r *travelRuleRepositoryImpl) Create(ctx context.Context, data *domain.TravelRuleData) error {
 	if data.ID == "" {
 		data.ID = uuid.New().String()
 	}
@@ -140,12 +140,12 @@ func (r *travelRuleRepositoryImpl) Create(ctx context.Context, data *model.Trave
 	_, err = r.db.ExecContext(ctx, query,
 		data.ID,
 		data.PaymentID,
-		encryptedPayerFullName,     // ENCRYPTED
+		encryptedPayerFullName, // ENCRYPTED
 		data.PayerWalletAddress,
-		encryptedPayerIDDocument,   // ENCRYPTED
+		encryptedPayerIDDocument, // ENCRYPTED
 		data.PayerCountry,
-		encryptedPayerDOB,          // ENCRYPTED
-		encryptedPayerAddress,      // ENCRYPTED
+		encryptedPayerDOB,     // ENCRYPTED
+		encryptedPayerAddress, // ENCRYPTED
 		data.MerchantFullName,
 		data.MerchantCountry,
 		data.MerchantWalletAddress,
@@ -168,8 +168,8 @@ func (r *travelRuleRepositoryImpl) Create(ctx context.Context, data *model.Trave
 	}
 
 	r.logger.Info("Travel Rule data created with encrypted PII", logger.Fields{
-		"id":         data.ID,
-		"payment_id": data.PaymentID,
+		"id":               data.ID,
+		"payment_id":       data.PaymentID,
 		"encrypted_fields": "payer_full_name, payer_id_document, payer_date_of_birth, payer_address",
 	})
 
@@ -177,7 +177,7 @@ func (r *travelRuleRepositoryImpl) Create(ctx context.Context, data *model.Trave
 }
 
 // Update updates an existing travel rule data record
-func (r *travelRuleRepositoryImpl) Update(ctx context.Context, data *model.TravelRuleData) error {
+func (r *travelRuleRepositoryImpl) Update(ctx context.Context, data *domain.TravelRuleData) error {
 	query := `
 		UPDATE travel_rule_data
 		SET payer_full_name = $2,
@@ -311,7 +311,7 @@ func (r *travelRuleRepositoryImpl) MarkAsReported(ctx context.Context, id string
 
 // List retrieves travel rule data with filters
 // CRITICAL: Used by ComplianceService.GetTravelRuleReport
-func (r *travelRuleRepositoryImpl) List(ctx context.Context, filter TravelRuleFilter) ([]*model.TravelRuleData, error) {
+func (r *travelRuleRepositoryImpl) List(ctx context.Context, filter TravelRuleFilter) ([]*domain.TravelRuleData, error) {
 	query := `
 		SELECT id, payment_id, payer_full_name, payer_wallet_address, payer_id_document,
 		       payer_country, merchant_full_name, merchant_country,
@@ -366,9 +366,9 @@ func (r *travelRuleRepositoryImpl) List(ctx context.Context, filter TravelRuleFi
 	}
 	defer rows.Close()
 
-	var results []*model.TravelRuleData
+	var results []*domain.TravelRuleData
 	for rows.Next() {
-		var data model.TravelRuleData
+		var data domain.TravelRuleData
 		err := rows.Scan(
 			&data.ID,
 			&data.PaymentID,
@@ -396,7 +396,7 @@ func (r *travelRuleRepositoryImpl) List(ctx context.Context, filter TravelRuleFi
 }
 
 // GetByID retrieves a travel rule data record by ID
-func (r *travelRuleRepositoryImpl) GetByID(ctx context.Context, id string) (*model.TravelRuleData, error) {
+func (r *travelRuleRepositoryImpl) GetByID(ctx context.Context, id string) (*domain.TravelRuleData, error) {
 	query := `
 		SELECT id, payment_id, payer_full_name, payer_wallet_address, payer_id_document,
 		       payer_country, payer_date_of_birth, payer_address,
@@ -410,7 +410,7 @@ func (r *travelRuleRepositoryImpl) GetByID(ctx context.Context, id string) (*mod
 		WHERE id = $1
 	`
 
-	var data model.TravelRuleData
+	var data domain.TravelRuleData
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&data.ID,
 		&data.PaymentID,
@@ -458,7 +458,7 @@ func (r *travelRuleRepositoryImpl) GetByID(ctx context.Context, id string) (*mod
 }
 
 // GetByPaymentID retrieves travel rule data for a specific payment
-func (r *travelRuleRepositoryImpl) GetByPaymentID(ctx context.Context, paymentID string) (*model.TravelRuleData, error) {
+func (r *travelRuleRepositoryImpl) GetByPaymentID(ctx context.Context, paymentID string) (*domain.TravelRuleData, error) {
 	query := `
 		SELECT id, payment_id, payer_full_name, payer_wallet_address, payer_id_document,
 		       payer_country, payer_date_of_birth, payer_address,
@@ -472,7 +472,7 @@ func (r *travelRuleRepositoryImpl) GetByPaymentID(ctx context.Context, paymentID
 		WHERE payment_id = $1
 	`
 
-	var data model.TravelRuleData
+	var data domain.TravelRuleData
 	err := r.db.QueryRowContext(ctx, query, paymentID).Scan(
 		&data.ID,
 		&data.PaymentID,
@@ -521,7 +521,7 @@ func (r *travelRuleRepositoryImpl) GetByPaymentID(ctx context.Context, paymentID
 
 // decryptTravelRuleData decrypts PII fields in-place after database retrieval
 // Fields encrypted: payer_full_name, payer_id_document, payer_date_of_birth, payer_address
-func (r *travelRuleRepositoryImpl) decryptTravelRuleData(data *model.TravelRuleData) error {
+func (r *travelRuleRepositoryImpl) decryptTravelRuleData(data *domain.TravelRuleData) error {
 	// Decrypt PayerFullName
 	if data.PayerFullName != "" {
 		decrypted, err := r.cipher.Decrypt(data.PayerFullName)
@@ -577,7 +577,7 @@ func (r *travelRuleRepositoryImpl) Delete(ctx context.Context, id string) error 
 
 // GetByDateRange retrieves all travel rule data within a date range for SBV reporting
 // Used by SBVReportService for regulatory reporting
-func (r *travelRuleRepositoryImpl) GetByDateRange(startDate, endDate time.Time) ([]*model.TravelRuleData, error) {
+func (r *travelRuleRepositoryImpl) GetByDateRange(startDate, endDate time.Time) ([]*domain.TravelRuleData, error) {
 	query := `
 		SELECT id, payment_id,
 		       payer_full_name, payer_wallet_address, payer_id_document,
@@ -599,9 +599,9 @@ func (r *travelRuleRepositoryImpl) GetByDateRange(startDate, endDate time.Time) 
 	}
 	defer rows.Close()
 
-	var results []*model.TravelRuleData
+	var results []*domain.TravelRuleData
 	for rows.Next() {
-		var data model.TravelRuleData
+		var data domain.TravelRuleData
 		err := rows.Scan(
 			&data.ID,
 			&data.PaymentID,

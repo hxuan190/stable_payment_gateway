@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 )
 
 var (
@@ -97,7 +97,7 @@ func (s *SumsubProvider) CreateApplicant(ctx context.Context, fullName, email st
 //
 // API: GET /resources/applicants/{applicantId}/status
 // Docs: https://developers.sumsub.com/api-reference/#getting-applicant-status
-func (s *SumsubProvider) GetApplicantStatus(ctx context.Context, applicantID string) (model.KYCStatus, error) {
+func (s *SumsubProvider) GetApplicantStatus(ctx context.Context, applicantID string) (merchantDomain.KYCStatus, error) {
 	// TODO: Implement Sumsub API integration
 	return "", fmt.Errorf("Sumsub integration not yet implemented - use MockKYCProvider for development")
 
@@ -121,15 +121,15 @@ func (s *SumsubProvider) GetApplicantStatus(ctx context.Context, applicantID str
 		// Map Sumsub status to our KYCStatus
 		switch result.ReviewStatus {
 		case "init", "pending":
-			return model.KYCStatusPending, nil
+			return merchantDomain.KYCStatusPending, nil
 		case "onHold":
-			return model.KYCStatusInProgress, nil
+			return merchantDomain.KYCStatusInProgress, nil
 		case "completed":
-			return model.KYCStatusApproved, nil
+			return merchantDomain.KYCStatusApproved, nil
 		case "rejected":
-			return model.KYCStatusRejected, nil
+			return merchantDomain.KYCStatusRejected, nil
 		default:
-			return model.KYCStatusPending, nil
+			return merchantDomain.KYCStatusPending, nil
 		}
 	*/
 }

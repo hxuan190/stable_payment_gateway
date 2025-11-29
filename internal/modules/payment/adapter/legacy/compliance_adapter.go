@@ -5,7 +5,6 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 )
@@ -23,14 +22,5 @@ func (a *ComplianceServiceAdapter) CheckMonthlyLimit(ctx context.Context, mercha
 }
 
 func (a *ComplianceServiceAdapter) ValidatePaymentCompliance(ctx context.Context, payment *domain.Payment, merchant interface{}, fromAddress string) error {
-	modelPayment := &model.Payment{
-		ID:           payment.ID,
-		MerchantID:   payment.MerchantID,
-		AmountVND:    payment.AmountVND,
-		AmountCrypto: payment.AmountCrypto,
-		Currency:     payment.Currency,
-		Chain:        model.Chain(payment.Chain),
-		ExchangeRate: payment.ExchangeRate,
-	}
-	return a.svc.ValidatePaymentCompliance(ctx, modelPayment, nil, fromAddress)
+	return a.svc.ValidatePaymentCompliance(ctx, payment, nil, fromAddress)
 }

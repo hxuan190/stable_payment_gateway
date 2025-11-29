@@ -3,9 +3,8 @@ package dto
 import (
 	"time"
 
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/shopspring/decimal"
-
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
 )
 
 // CreatePaymentRequest represents the request to create a new payment
@@ -77,8 +76,8 @@ type GetPaymentResponse struct {
 	NetAmountVND  decimal.Decimal `json:"net_amount_vnd"`
 
 	// Timestamps
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ListPaymentsRequest represents the request to list payments with pagination
@@ -110,8 +109,8 @@ type PaymentListItem struct {
 	ConfirmedAt  *time.Time      `json:"confirmed_at,omitempty"`
 }
 
-// PaymentToResponse converts a model.Payment to GetPaymentResponse
-func PaymentToResponse(payment *model.Payment) GetPaymentResponse {
+// PaymentToResponse converts a paymentDomain.Payment to GetPaymentResponse
+func PaymentToResponse(payment *paymentDomain.Payment) GetPaymentResponse {
 	response := GetPaymentResponse{
 		PaymentID:         payment.ID,
 		MerchantID:        payment.MerchantID,
@@ -164,8 +163,8 @@ func PaymentToResponse(payment *model.Payment) GetPaymentResponse {
 	return response
 }
 
-// PaymentToListItem converts a model.Payment to PaymentListItem
-func PaymentToListItem(payment *model.Payment) PaymentListItem {
+// PaymentToListItem converts a paymentDomain.Payment to PaymentListItem
+func PaymentToListItem(payment *paymentDomain.Payment) PaymentListItem {
 	item := PaymentListItem{
 		PaymentID:    payment.ID,
 		AmountVND:    payment.AmountVND,
@@ -201,24 +200,24 @@ func PaymentToListItem(payment *model.Payment) PaymentListItem {
 // PaymentStatusResponse represents the public payment status response (no authentication required)
 // This DTO is designed for the payer experience layer and excludes merchant-sensitive information
 type PaymentStatusResponse struct {
-	ID                string          `json:"id"`
-	Status            string          `json:"status"`
-	AmountCrypto      decimal.Decimal `json:"amount_crypto"`
-	AmountVND         decimal.Decimal `json:"amount_vnd"`
-	Currency          string          `json:"currency"`
-	Chain             string          `json:"chain"`
-	WalletAddress     string          `json:"wallet_address"`
-	PaymentMemo       string          `json:"payment_memo"`
-	QRCodeData        string          `json:"qr_code_data"`
-	TxHash            *string         `json:"tx_hash,omitempty"`
-	Confirmations     int             `json:"confirmations"`
-	ExpiresAt         time.Time       `json:"expires_at"`
-	CreatedAt         time.Time       `json:"created_at"`
-	CompletedAt       *time.Time      `json:"completed_at,omitempty"`
+	ID            string          `json:"id"`
+	Status        string          `json:"status"`
+	AmountCrypto  decimal.Decimal `json:"amount_crypto"`
+	AmountVND     decimal.Decimal `json:"amount_vnd"`
+	Currency      string          `json:"currency"`
+	Chain         string          `json:"chain"`
+	WalletAddress string          `json:"wallet_address"`
+	PaymentMemo   string          `json:"payment_memo"`
+	QRCodeData    string          `json:"qr_code_data"`
+	TxHash        *string         `json:"tx_hash,omitempty"`
+	Confirmations int             `json:"confirmations"`
+	ExpiresAt     time.Time       `json:"expires_at"`
+	CreatedAt     time.Time       `json:"created_at"`
+	CompletedAt   *time.Time      `json:"completed_at,omitempty"`
 }
 
-// PaymentToPublicStatusResponse converts a model.Payment to PaymentStatusResponse (public-safe)
-func PaymentToPublicStatusResponse(payment *model.Payment) PaymentStatusResponse {
+// PaymentToPublicStatusResponse converts a paymentDomain.Payment to PaymentStatusResponse (public-safe)
+func PaymentToPublicStatusResponse(payment *paymentDomain.Payment) PaymentStatusResponse {
 	response := PaymentStatusResponse{
 		ID:            payment.ID,
 		Status:        string(payment.Status),
@@ -245,11 +244,11 @@ func PaymentToPublicStatusResponse(payment *model.Payment) PaymentStatusResponse
 	}
 
 	// Set confirmations based on status
-	if payment.Status == model.PaymentStatusCompleted {
+	if payment.Status == paymentDomain.PaymentStatusCompleted {
 		response.Confirmations = 100 // Fully confirmed
-	} else if payment.Status == model.PaymentStatusConfirming {
+	} else if payment.Status == paymentDomain.PaymentStatusConfirming {
 		response.Confirmations = 50 // Partially confirmed
-	} else if payment.Status == model.PaymentStatusPending {
+	} else if payment.Status == paymentDomain.PaymentStatusPending {
 		response.Confirmations = 1 // Transaction detected
 	}
 
@@ -258,13 +257,13 @@ func PaymentToPublicStatusResponse(payment *model.Payment) PaymentStatusResponse
 
 // formatQRCodeData formats the payment data for QR code generation
 // Returns a formatted string that can be used to generate QR codes for different chains
-func formatQRCodeData(payment *model.Payment) string {
+func formatQRCodeData(payment *paymentDomain.Payment) string {
 	switch payment.Chain {
-	case model.ChainSolana:
+	case paymentDomain.ChainSolana:
 		// Solana Pay format: solana:{address}?amount={amount}&spl-token={mint}&reference={memo}&label={label}
 		// For now, return simplified format
 		return "solana:" + payment.DestinationWallet + "?amount=" + payment.AmountCrypto.String() + "&reference=" + payment.PaymentReference
-	case model.ChainBSC:
+	case paymentDomain.ChainBSC:
 		// Ethereum/BSC format
 		return "ethereum:" + payment.DestinationWallet + "?value=" + payment.AmountCrypto.String()
 	default:

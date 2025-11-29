@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/shopspring/decimal"
 )
 
@@ -58,7 +58,7 @@ type LedgerEntry struct {
 	EntryType EntryType `json:"entry_type" db:"entry_type" validate:"required,oneof=debit credit"`
 
 	// Metadata for additional context
-	Metadata model.JSONBMap `json:"metadata,omitempty" db:"metadata"`
+	Metadata database.JSONBMap `json:"metadata,omitempty" db:"metadata"`
 
 	// Timestamp - ledger entries are immutable (no updated_at or deleted_at)
 	CreatedAt time.Time `json:"created_at" db:"created_at"`

@@ -9,10 +9,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/audit/domain"
 	auditRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/audit/repository"
+	complianceDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	complianceRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	infrastructureRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 	merchantRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
 	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -32,17 +34,17 @@ var (
 // ComplianceService handles compliance-related operations
 type ComplianceService interface {
 	// Payment Compliance
-	ValidatePaymentCompliance(ctx context.Context, payment *model.Payment, travelRuleData *model.TravelRuleData, fromAddress string) error
+	ValidatePaymentCompliance(ctx context.Context, payment *paymentDomain.Payment, travelRuleData *complianceDomain.TravelRuleData, fromAddress string) error
 	CheckMonthlyLimit(ctx context.Context, merchantID string, amountUSD decimal.Decimal) error
-	StoreTravelRuleData(ctx context.Context, data *model.TravelRuleData) error
+	StoreTravelRuleData(ctx context.Context, data *complianceDomain.TravelRuleData) error
 
 	// KYC Management
 	UpgradeKYCTier(ctx context.Context, merchantID string, tier string) error
 	CheckKYCTierRequirements(ctx context.Context, merchantID string, targetTier string) error
-	GetKYCDocuments(ctx context.Context, merchantID string) ([]*model.KYCDocument, error)
+	GetKYCDocuments(ctx context.Context, merchantID string) ([]*merchantDomain.KYCDocument, error)
 
 	// Reporting
-	GetTravelRuleReport(ctx context.Context, startDate, endDate time.Time) ([]*model.TravelRuleData, error)
+	GetTravelRuleReport(ctx context.Context, startDate, endDate time.Time) ([]*complianceDomain.TravelRuleData, error)
 	GetComplianceMetrics(ctx context.Context, merchantID string) (*ComplianceMetrics, error)
 }
 
@@ -93,8 +95,8 @@ func NewComplianceService(
 // ValidatePaymentCompliance performs comprehensive compliance validation on a payment
 func (s *complianceServiceImpl) ValidatePaymentCompliance(
 	ctx context.Context,
-	payment *model.Payment,
-	travelRuleData *model.TravelRuleData,
+	payment *paymentDomain.Payment,
+	travelRuleData *complianceDomain.TravelRuleData,
 	fromAddress string,
 ) error {
 	// Fixed: Use AmountCrypto as USD equivalent since we use USDT/USDC (USD-pegged stablecoins)
@@ -205,7 +207,7 @@ func (s *complianceServiceImpl) CheckMonthlyLimit(ctx context.Context, merchantI
 }
 
 // StoreTravelRuleData stores Travel Rule data for a transaction
-func (s *complianceServiceImpl) StoreTravelRuleData(ctx context.Context, data *model.TravelRuleData) error {
+func (s *complianceServiceImpl) StoreTravelRuleData(ctx context.Context, data *complianceDomain.TravelRuleData) error {
 	if data == nil {
 		return errors.New("travel rule data cannot be nil")
 	}
@@ -222,14 +224,14 @@ func (s *complianceServiceImpl) StoreTravelRuleData(ctx context.Context, data *m
 	}
 
 	// Log audit trail
-	auditLog := &model.AuditLog{
+	auditLog := &domain.AuditLog{
 		ID:             uuid.New().String(), // Fixed: convert UUID to string
-		ActorType:      model.ActorTypeSystem,
+		ActorType:      domain.ActorTypeSystem,
 		Action:         "travel_rule_stored",
-		ActionCategory: model.ActionCategoryPayment,
+		ActionCategory: domain.ActionCategoryPayment,
 		ResourceType:   "payment",
 		ResourceID:     data.PaymentID, // Fixed: PaymentID is already a string
-		Status:         model.AuditStatusSuccess,
+		Status:         domain.AuditStatusSuccess,
 		Metadata: map[string]interface{}{
 			"payer_country":      data.PayerCountry,
 			"merchant_country":   data.MerchantCountry,
@@ -275,7 +277,7 @@ func (s *complianceServiceImpl) UpgradeKYCTier(ctx context.Context, merchantID s
 	oldTier := merchant.KYCTier
 
 	// Update tier and monthly limit
-	merchant.KYCTier = model.KYCTier(tier) // Fixed: convert string to KYCTier type
+	merchant.KYCTier = merchantDomain.KYCTier(tier) // Fixed: convert string to KYCTier type
 	switch tier {
 	case "tier1":
 		merchant.MonthlyLimitUSD = decimal.NewFromInt(5000)
@@ -292,14 +294,14 @@ func (s *complianceServiceImpl) UpgradeKYCTier(ctx context.Context, merchantID s
 	}
 
 	// Log audit trail
-	auditLog := &model.AuditLog{
+	auditLog := &domain.AuditLog{
 		ID:             uuid.New().String(), // Fixed: convert UUID to string
-		ActorType:      model.ActorTypeAdmin,
+		ActorType:      domain.ActorTypeAdmin,
 		Action:         "kyc_tier_upgraded",
-		ActionCategory: model.ActionCategoryKYC,
+		ActionCategory: domain.ActionCategoryKYC,
 		ResourceType:   "merchant",
 		ResourceID:     merchantID, // Fixed: merchantID is already a string
-		Status:         model.AuditStatusSuccess,
+		Status:         domain.AuditStatusSuccess,
 		Metadata: map[string]interface{}{
 			"old_tier":          string(oldTier), // Fixed: convert KYCTier to string
 			"new_tier":          tier,
@@ -330,7 +332,7 @@ func (s *complianceServiceImpl) CheckKYCTierRequirements(ctx context.Context, me
 
 	case "tier2":
 		// Tier 2 requires business registration document
-		hasBusinessReg, err := s.kycDocumentRepo.HasApprovedDocumentOfType(ctx, merchantID, model.KYCDocumentTypeBusinessRegistration)
+		hasBusinessReg, err := s.kycDocumentRepo.HasApprovedDocumentOfType(ctx, merchantID, merchantDomain.KYCDocumentTypeBusinessRegistration)
 		if err != nil {
 			return fmt.Errorf("failed to check business registration: %w", err)
 		}
@@ -341,10 +343,10 @@ func (s *complianceServiceImpl) CheckKYCTierRequirements(ctx context.Context, me
 
 	case "tier3":
 		// Tier 3 requires: business registration + tax certificate + bank statement
-		requiredDocs := []model.KYCDocumentType{
-			model.KYCDocumentTypeBusinessRegistration,
-			model.KYCDocumentTypeTaxCertificate,
-			model.KYCDocumentTypeBankStatement,
+		requiredDocs := []merchantDomain.KYCDocumentType{
+			merchantDomain.KYCDocumentTypeBusinessRegistration,
+			merchantDomain.KYCDocumentTypeTaxCertificate,
+			merchantDomain.KYCDocumentTypeBankStatement,
 		}
 
 		for _, docType := range requiredDocs {
@@ -364,7 +366,7 @@ func (s *complianceServiceImpl) CheckKYCTierRequirements(ctx context.Context, me
 }
 
 // GetKYCDocuments retrieves all KYC documents for a merchant
-func (s *complianceServiceImpl) GetKYCDocuments(ctx context.Context, merchantID string) ([]*model.KYCDocument, error) {
+func (s *complianceServiceImpl) GetKYCDocuments(ctx context.Context, merchantID string) ([]*merchantDomain.KYCDocument, error) {
 	documents, err := s.kycDocumentRepo.GetByMerchantID(ctx, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get KYC documents: %w", err)
@@ -373,7 +375,7 @@ func (s *complianceServiceImpl) GetKYCDocuments(ctx context.Context, merchantID 
 }
 
 // GetTravelRuleReport generates a Travel Rule compliance report
-func (s *complianceServiceImpl) GetTravelRuleReport(ctx context.Context, startDate, endDate time.Time) ([]*model.TravelRuleData, error) {
+func (s *complianceServiceImpl) GetTravelRuleReport(ctx context.Context, startDate, endDate time.Time) ([]*complianceDomain.TravelRuleData, error) {
 	filter := complianceRepository.TravelRuleFilter{
 		StartDate: &startDate,
 		EndDate:   &endDate,

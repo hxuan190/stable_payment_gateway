@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -467,7 +467,7 @@ type CountryStatistics struct {
 	Volume string `json:"volume_usd"`
 }
 
-func calculateStatistics(results []*model.TravelRuleData) ComplianceStatisticsResponse {
+func calculateStatistics(results []*domain.TravelRuleData) ComplianceStatisticsResponse {
 	totalRecords := len(results)
 	crossBorder := 0
 	highRisk := 0
@@ -545,7 +545,7 @@ func calculateStatistics(results []*model.TravelRuleData) ComplianceStatisticsRe
 }
 
 // Helper function to convert model to response (reuse from travel_rule.go)
-func (h *TravelRuleAdminHandler) modelToResponse(data *model.TravelRuleData) *TravelRuleDataResponse {
+func (h *TravelRuleAdminHandler) modelToResponse(data *domain.TravelRuleData) *TravelRuleDataResponse {
 	return &TravelRuleDataResponse{
 		ID:        data.ID,
 		PaymentID: data.PaymentID,

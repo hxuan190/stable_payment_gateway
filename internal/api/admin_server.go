@@ -23,7 +23,6 @@ import (
 	merchanthandler "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/handler"
 	merchantrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
 	merchantservice "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/service"
-	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
 	payoutrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
 	payoutservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/service"
@@ -177,7 +176,6 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 	// Initialize repositories
 	merchantRepo := merchantrepository.NewMerchantRepository(s.gormDB)
 	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(s.gormDB)
-	paymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(newPaymentRepo)
 	payoutRepo := payoutrepository.NewPayoutRepository(s.gormDB)
 	balanceRepo := ledgerrepository.NewBalanceRepository(s.gormDB)
 	auditRepo := auditrepository.NewAuditRepository(s.gormDB)
@@ -221,7 +219,7 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 	}
 
 	// Initialize services
-	merchantService := merchantservice.NewMerchantService(*merchantRepo, s.gormDB)
+	merchantService := merchantservice.NewMerchantService(merchantRepo, s.gormDB)
 
 	// Initialize compliance services
 	ruleEngine := complianceservice.NewRuleEngine(amlRuleRepo, newPaymentRepo, logger.GetLogger())
@@ -291,7 +289,7 @@ func (s *AdminServer) setupRoutes(router *gin.Engine) {
 				complianceService,
 				merchantRepo,
 				payoutRepo,
-				paymentRepo,
+				newPaymentRepo,
 				balanceRepo,
 				travelRuleRepo,
 				kycDocumentRepo,

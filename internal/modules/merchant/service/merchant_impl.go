@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
 	"gorm.io/gorm"
 )
@@ -27,13 +28,13 @@ var (
 
 // MerchantService handles business logic for merchant management
 type MerchantService struct {
-	merchantRepo repository.MerchantRepository
+	merchantRepo repository.Repository
 	gormDB       *gorm.DB
 }
 
 // NewMerchantService creates a new merchant service instance
 func NewMerchantService(
-	merchantRepo repository.MerchantRepository,
+	merchantRepo repository.Repository,
 	gormDB *gorm.DB,
 ) *MerchantService {
 	return &MerchantService{
@@ -57,7 +58,7 @@ func (input *RegisterMerchantRequest) Validate() error {
 }
 
 // RegisterMerchant registers a new merchant with pending KYC status
-func (s *MerchantService) RegisterMerchant(input RegisterMerchantRequest) (*model.Merchant, error) {
+func (s *MerchantService) RegisterMerchant(input RegisterMerchantRequest) (*domain.Merchant, error) {
 	// Validate input
 	if err := input.Validate(); err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)
@@ -73,13 +74,13 @@ func (s *MerchantService) RegisterMerchant(input RegisterMerchantRequest) (*mode
 	}
 
 	// Create merchant
-	merchant := &model.Merchant{
+	merchant := &domain.Merchant{
 		ID:            uuid.New().String(),
 		Email:         input.Email,
 		BusinessName:  input.BusinessName,
 		OwnerFullName: input.OwnerFullName,
-		KYCStatus:     model.KYCStatusPending,
-		Status:        model.MerchantStatusActive,
+		KYCStatus:     domain.KYCStatusPending,
+		Status:        domain.MerchantStatusActive,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}
@@ -134,7 +135,7 @@ func (s *MerchantService) RegisterMerchant(input RegisterMerchantRequest) (*mode
 	// Balance creation moved to ledger module
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -142,7 +143,7 @@ func (s *MerchantService) RegisterMerchant(input RegisterMerchantRequest) (*mode
 }
 
 // GetMerchantBalance retrieves a merchant's current balance
-func (s *MerchantService) GetMerchantBalance(merchantID string) (*model.MerchantBalance, error) {
+func (s *MerchantService) GetMerchantBalance(merchantID string) (*domain.MerchantBalance, error) {
 	if merchantID == "" {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
@@ -161,7 +162,7 @@ func (s *MerchantService) GetMerchantBalance(merchantID string) (*model.Merchant
 }
 
 // ApproveKYC approves a merchant's KYC and generates an API key
-func (s *MerchantService) ApproveKYC(merchantID string, approvedBy string) (*model.Merchant, error) {
+func (s *MerchantService) ApproveKYC(merchantID string, approvedBy string) (*domain.Merchant, error) {
 	if merchantID == "" {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
@@ -179,7 +180,7 @@ func (s *MerchantService) ApproveKYC(merchantID string, approvedBy string) (*mod
 	}
 
 	// Check if merchant is in pending status
-	if merchant.KYCStatus != model.KYCStatusPending {
+	if merchant.KYCStatus != domain.KYCStatusPending {
 		return nil, fmt.Errorf("%w: merchant KYC status is %s, expected pending", ErrInvalidKYCStatus, merchant.KYCStatus)
 	}
 
@@ -191,7 +192,7 @@ func (s *MerchantService) ApproveKYC(merchantID string, approvedBy string) (*mod
 
 	// Update merchant
 	now := time.Now()
-	merchant.KYCStatus = model.KYCStatusApproved
+	merchant.KYCStatus = domain.KYCStatusApproved
 	merchant.KYCApprovedAt = sql.NullTime{Time: now, Valid: true}
 	merchant.KYCApprovedBy = sql.NullString{String: approvedBy, Valid: true}
 	merchant.APIKey = sql.NullString{String: apiKey, Valid: true}
@@ -207,7 +208,7 @@ func (s *MerchantService) ApproveKYC(merchantID string, approvedBy string) (*mod
 }
 
 // RejectKYC rejects a merchant's KYC with a reason
-func (s *MerchantService) RejectKYC(merchantID string, reason string) (*model.Merchant, error) {
+func (s *MerchantService) RejectKYC(merchantID string, reason string) (*domain.Merchant, error) {
 	if merchantID == "" {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
@@ -225,12 +226,12 @@ func (s *MerchantService) RejectKYC(merchantID string, reason string) (*model.Me
 	}
 
 	// Check if merchant is in pending status
-	if merchant.KYCStatus != model.KYCStatusPending {
+	if merchant.KYCStatus != domain.KYCStatusPending {
 		return nil, fmt.Errorf("%w: merchant KYC status is %s, expected pending", ErrInvalidKYCStatus, merchant.KYCStatus)
 	}
 
 	// Update merchant
-	merchant.KYCStatus = model.KYCStatusRejected
+	merchant.KYCStatus = domain.KYCStatusRejected
 	merchant.KYCRejectionReason = sql.NullString{String: reason, Valid: true}
 	merchant.UpdatedAt = time.Now()
 
@@ -277,7 +278,7 @@ func (s *MerchantService) RotateAPIKey(merchantID string) (string, error) {
 	}
 
 	// Check if merchant is approved
-	if merchant.KYCStatus != model.KYCStatusApproved {
+	if merchant.KYCStatus != domain.KYCStatusApproved {
 		return "", ErrMerchantNotApproved
 	}
 
@@ -301,7 +302,7 @@ func (s *MerchantService) RotateAPIKey(merchantID string) (string, error) {
 }
 
 // GetMerchantByID retrieves a merchant by ID
-func (s *MerchantService) GetMerchantByID(merchantID string) (*model.Merchant, error) {
+func (s *MerchantService) GetMerchantByID(merchantID string) (*domain.Merchant, error) {
 	if merchantID == "" {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
@@ -318,7 +319,7 @@ func (s *MerchantService) GetMerchantByID(merchantID string) (*model.Merchant, e
 }
 
 // GetMerchantByEmail retrieves a merchant by email
-func (s *MerchantService) GetMerchantByEmail(email string) (*model.Merchant, error) {
+func (s *MerchantService) GetMerchantByEmail(email string) (*domain.Merchant, error) {
 	if email == "" {
 		return nil, ErrInvalidEmail
 	}
@@ -335,7 +336,7 @@ func (s *MerchantService) GetMerchantByEmail(email string) (*model.Merchant, err
 }
 
 // GetMerchantByAPIKey retrieves a merchant by API key
-func (s *MerchantService) GetMerchantByAPIKey(apiKey string) (*model.Merchant, error) {
+func (s *MerchantService) GetMerchantByAPIKey(apiKey string) (*domain.Merchant, error) {
 	if apiKey == "" {
 		return nil, errors.New("API key cannot be empty")
 	}
@@ -352,7 +353,7 @@ func (s *MerchantService) GetMerchantByAPIKey(apiKey string) (*model.Merchant, e
 }
 
 // ListMerchants retrieves merchants with pagination
-func (s *MerchantService) ListMerchants(limit, offset int) ([]*model.Merchant, error) {
+func (s *MerchantService) ListMerchants(limit, offset int) ([]*domain.Merchant, error) {
 	merchants, err := s.merchantRepo.List(limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list merchants: %w", err)
@@ -362,7 +363,7 @@ func (s *MerchantService) ListMerchants(limit, offset int) ([]*model.Merchant, e
 }
 
 // ListMerchantsByKYCStatus retrieves merchants by KYC status with pagination
-func (s *MerchantService) ListMerchantsByKYCStatus(status string, limit, offset int) ([]*model.Merchant, error) {
+func (s *MerchantService) ListMerchantsByKYCStatus(status string, limit, offset int) ([]*domain.Merchant, error) {
 	merchants, err := s.merchantRepo.ListByKYCStatus(status, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list merchants by KYC status: %w", err)
@@ -431,8 +432,8 @@ func (s *MerchantService) SuspendMerchant(merchantID string, reason string) erro
 	}
 
 	// Update status
-	merchant.Status = model.MerchantStatusSuspended
-	merchant.KYCStatus = model.KYCStatusSuspended
+	merchant.Status = domain.MerchantStatusSuspended
+	merchant.KYCStatus = domain.KYCStatusSuspended
 	merchant.UpdatedAt = time.Now()
 
 	// Save to database
@@ -459,13 +460,13 @@ func (s *MerchantService) ReactivateMerchant(merchantID string) error {
 	}
 
 	// Only reactivate if currently suspended
-	if merchant.Status != model.MerchantStatusSuspended {
+	if merchant.Status != domain.MerchantStatusSuspended {
 		return errors.New("merchant is not suspended")
 	}
 
 	// Update status
-	merchant.Status = model.MerchantStatusActive
-	merchant.KYCStatus = model.KYCStatusApproved
+	merchant.Status = domain.MerchantStatusActive
+	merchant.KYCStatus = domain.KYCStatusApproved
 	merchant.UpdatedAt = time.Now()
 
 	// Save to database

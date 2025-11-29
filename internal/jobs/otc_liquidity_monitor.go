@@ -8,7 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	otcDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/otc/domain"
 )
 
 const (
@@ -93,7 +93,7 @@ func (j *OTCLiquidityMonitorJob) Run(ctx context.Context) error {
 }
 
 // getActivePartners retrieves all active OTC partners
-func (j *OTCLiquidityMonitorJob) getActivePartners(ctx context.Context) ([]*model.OTCPartnerLiquidity, error) {
+func (j *OTCLiquidityMonitorJob) getActivePartners(ctx context.Context) ([]*otcDomain.OTCPartnerLiquidity, error) {
 	query := `
 		SELECT id, partner_name, partner_code,
 		       current_balance_vnd, available_balance_vnd, reserved_balance_vnd,
@@ -113,9 +113,9 @@ func (j *OTCLiquidityMonitorJob) getActivePartners(ctx context.Context) ([]*mode
 	}
 	defer rows.Close()
 
-	partners := make([]*model.OTCPartnerLiquidity, 0)
+	partners := make([]*otcDomain.OTCPartnerLiquidity, 0)
 	for rows.Next() {
-		partner := &model.OTCPartnerLiquidity{}
+		partner := &otcDomain.OTCPartnerLiquidity{}
 		err := rows.Scan(
 			&partner.ID,
 			&partner.PartnerName,
@@ -150,7 +150,7 @@ func (j *OTCLiquidityMonitorJob) getActivePartners(ctx context.Context) ([]*mode
 }
 
 // sendAlert sends alerts to all configured channels
-func (j *OTCLiquidityMonitorJob) sendAlert(ctx context.Context, partner *model.OTCPartnerLiquidity) error {
+func (j *OTCLiquidityMonitorJob) sendAlert(ctx context.Context, partner *otcDomain.OTCPartnerLiquidity) error {
 	j.logger.WithFields(logrus.Fields{
 		"partner_id":   partner.ID,
 		"partner_name": partner.PartnerName,
@@ -226,7 +226,7 @@ func (j *OTCLiquidityMonitorJob) sendAlert(ctx context.Context, partner *model.O
 // logAlert records an alert in the database
 func (j *OTCLiquidityMonitorJob) logAlert(
 	ctx context.Context,
-	partner *model.OTCPartnerLiquidity,
+	partner *otcDomain.OTCPartnerLiquidity,
 	alertType, alertLevel, message string,
 	sentToTelegram, sentToSlack, sentToEmail bool,
 ) error {

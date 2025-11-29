@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -21,12 +21,12 @@ type MockMerchantRepository struct {
 	mock.Mock
 }
 
-func (m *MockMerchantRepository) GetByAPIKey(apiKey string) (*model.Merchant, error) {
+func (m *MockMerchantRepository) GetByAPIKey(apiKey string) (*merchantDomain.Merchant, error) {
 	args := m.Called(apiKey)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*model.Merchant), args.Error(1)
+	return args.Get(0).(*merchantDomain.Merchant), args.Error(1)
 }
 
 // MockCache is a mock implementation of Cache
@@ -64,12 +64,12 @@ func TestAPIKeyAuth_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Create mock merchant
-	merchant := &model.Merchant{
+	merchant := &merchantDomain.Merchant{
 		ID:           "merchant-123",
 		Email:        "test@example.com",
 		BusinessName: "Test Business",
-		KYCStatus:    model.KYCStatusApproved,
-		Status:       model.MerchantStatusActive,
+		KYCStatus:    merchantDomain.KYCStatusApproved,
+		Status:       merchantDomain.MerchantStatusActive,
 		APIKey:       sql.NullString{String: "test-api-key-12345", Valid: true},
 	}
 
@@ -119,12 +119,12 @@ func TestAPIKeyAuth_Success(t *testing.T) {
 func TestAPIKeyAuth_CacheHit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	merchant := &model.Merchant{
+	merchant := &merchantDomain.Merchant{
 		ID:           "merchant-123",
 		Email:        "test@example.com",
 		BusinessName: "Test Business",
-		KYCStatus:    model.KYCStatusApproved,
-		Status:       model.MerchantStatusActive,
+		KYCStatus:    merchantDomain.KYCStatusApproved,
+		Status:       merchantDomain.MerchantStatusActive,
 		APIKey:       sql.NullString{String: "test-api-key-12345", Valid: true},
 	}
 
@@ -268,36 +268,36 @@ func TestAPIKeyAuth_MerchantKYCNotApproved(t *testing.T) {
 
 	testCases := []struct {
 		name      string
-		kycStatus model.KYCStatus
-		status    model.MerchantStatus
+		kycStatus merchantDomain.KYCStatus
+		status    merchantDomain.MerchantStatus
 		hasAPIKey bool
 		expected  string
 	}{
 		{
 			name:      "KYC Pending",
-			kycStatus: model.KYCStatusPending,
-			status:    model.MerchantStatusActive,
+			kycStatus: merchantDomain.KYCStatusPending,
+			status:    merchantDomain.MerchantStatusActive,
 			hasAPIKey: true,
 			expected:  "Merchant KYC not approved (status: pending)",
 		},
 		{
 			name:      "KYC Rejected",
-			kycStatus: model.KYCStatusRejected,
-			status:    model.MerchantStatusActive,
+			kycStatus: merchantDomain.KYCStatusRejected,
+			status:    merchantDomain.MerchantStatusActive,
 			hasAPIKey: true,
 			expected:  "Merchant KYC not approved (status: rejected)",
 		},
 		{
 			name:      "Merchant Suspended",
-			kycStatus: model.KYCStatusApproved,
-			status:    model.MerchantStatusSuspended,
+			kycStatus: merchantDomain.KYCStatusApproved,
+			status:    merchantDomain.MerchantStatusSuspended,
 			hasAPIKey: true,
 			expected:  "Merchant account not active (status: suspended)",
 		},
 		{
 			name:      "No API Key",
-			kycStatus: model.KYCStatusApproved,
-			status:    model.MerchantStatusActive,
+			kycStatus: merchantDomain.KYCStatusApproved,
+			status:    merchantDomain.MerchantStatusActive,
 			hasAPIKey: false,
 			expected:  "API key not configured",
 		},
@@ -305,7 +305,7 @@ func TestAPIKeyAuth_MerchantKYCNotApproved(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			merchant := &model.Merchant{
+			merchant := &merchantDomain.Merchant{
 				ID:           "merchant-123",
 				Email:        "test@example.com",
 				BusinessName: "Test Business",
@@ -432,7 +432,7 @@ func TestGetMerchantFromContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 
-		expectedMerchant := &model.Merchant{
+		expectedMerchant := &merchantDomain.Merchant{
 			ID:           "merchant-123",
 			BusinessName: "Test Business",
 		}

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/domain"
 	"gorm.io/gorm"
 )
 
@@ -26,7 +26,7 @@ func NewTransactionHashRepository(db *gorm.DB) *TransactionHashRepository {
 	}
 }
 
-func (r *TransactionHashRepository) Create(hash *model.TransactionHash) error {
+func (r *TransactionHashRepository) Create(hash *domain.TransactionHash) error {
 	if hash == nil {
 		return errors.New("transaction hash cannot be nil")
 	}
@@ -45,12 +45,12 @@ func (r *TransactionHashRepository) Create(hash *model.TransactionHash) error {
 	return nil
 }
 
-func (r *TransactionHashRepository) GetByID(id uuid.UUID) (*model.TransactionHash, error) {
+func (r *TransactionHashRepository) GetByID(id uuid.UUID) (*domain.TransactionHash, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("invalid transaction hash ID")
 	}
 
-	hash := &model.TransactionHash{}
+	hash := &domain.TransactionHash{}
 	if err := r.db.Where("id = ?", id).First(hash).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTransactionHashNotFound
@@ -61,7 +61,7 @@ func (r *TransactionHashRepository) GetByID(id uuid.UUID) (*model.TransactionHas
 	return hash, nil
 }
 
-func (r *TransactionHashRepository) GetByRecord(tableName string, recordID uuid.UUID) (*model.TransactionHash, error) {
+func (r *TransactionHashRepository) GetByRecord(tableName string, recordID uuid.UUID) (*domain.TransactionHash, error) {
 	if tableName == "" {
 		return nil, errors.New("table name cannot be empty")
 	}
@@ -69,7 +69,7 @@ func (r *TransactionHashRepository) GetByRecord(tableName string, recordID uuid.
 		return nil, errors.New("record ID cannot be empty")
 	}
 
-	hash := &model.TransactionHash{}
+	hash := &domain.TransactionHash{}
 	if err := r.db.Where("table_name = ? AND record_id = ?", tableName, recordID).First(hash).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTransactionHashNotFound
@@ -80,7 +80,7 @@ func (r *TransactionHashRepository) GetByRecord(tableName string, recordID uuid.
 	return hash, nil
 }
 
-func (r *TransactionHashRepository) ListByTableName(tableName string, limit, offset int) ([]*model.TransactionHash, error) {
+func (r *TransactionHashRepository) ListByTableName(tableName string, limit, offset int) ([]*domain.TransactionHash, error) {
 	if tableName == "" {
 		return nil, errors.New("table name cannot be empty")
 	}
@@ -92,7 +92,7 @@ func (r *TransactionHashRepository) ListByTableName(tableName string, limit, off
 		offset = 0
 	}
 
-	var hashes []*model.TransactionHash
+	var hashes []*domain.TransactionHash
 	if err := r.db.Where("table_name = ?", tableName).
 		Order("block_date DESC, created_at DESC").
 		Limit(limit).
@@ -104,12 +104,12 @@ func (r *TransactionHashRepository) ListByTableName(tableName string, limit, off
 	return hashes, nil
 }
 
-func (r *TransactionHashRepository) ListByBlockDate(tableName string, blockDate time.Time) ([]*model.TransactionHash, error) {
+func (r *TransactionHashRepository) ListByBlockDate(tableName string, blockDate time.Time) ([]*domain.TransactionHash, error) {
 	if tableName == "" {
 		return nil, errors.New("table name cannot be empty")
 	}
 
-	var hashes []*model.TransactionHash
+	var hashes []*domain.TransactionHash
 	if err := r.db.Where("table_name = ? AND block_date = ?", tableName, blockDate).
 		Order("block_number ASC, created_at ASC").
 		Find(&hashes).Error; err != nil {
@@ -119,7 +119,7 @@ func (r *TransactionHashRepository) ListByBlockDate(tableName string, blockDate 
 	return hashes, nil
 }
 
-func (r *TransactionHashRepository) Update(hash *model.TransactionHash) error {
+func (r *TransactionHashRepository) Update(hash *domain.TransactionHash) error {
 	if hash == nil {
 		return errors.New("transaction hash cannot be nil")
 	}
@@ -129,7 +129,7 @@ func (r *TransactionHashRepository) Update(hash *model.TransactionHash) error {
 
 	hash.UpdatedAt = time.Now()
 
-	result := r.db.Model(&model.TransactionHash{}).Where("id = ?", hash.ID).Updates(map[string]interface{}{
+	result := r.db.Model(&domain.TransactionHash{}).Where("id = ?", hash.ID).Updates(map[string]interface{}{
 		"merkle_root":  hash.MerkleRoot,
 		"merkle_proof": hash.MerkleProof,
 		"verified":     hash.Verified,
@@ -154,7 +154,7 @@ func (r *TransactionHashRepository) MarkAsVerified(id uuid.UUID) error {
 	}
 
 	now := time.Now()
-	result := r.db.Model(&model.TransactionHash{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := r.db.Model(&domain.TransactionHash{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"verified":    true,
 		"verified_at": sql.NullTime{Time: now, Valid: true},
 		"updated_at":  now,
@@ -179,7 +179,7 @@ func (r *TransactionHashRepository) UpdateMerkleRoot(tableName string, blockDate
 		return errors.New("merkle root cannot be empty")
 	}
 
-	result := r.db.Model(&model.TransactionHash{}).
+	result := r.db.Model(&domain.TransactionHash{}).
 		Where("table_name = ? AND block_date = ?", tableName, blockDate).
 		Updates(map[string]interface{}{
 			"merkle_root": sql.NullString{String: merkleRoot, Valid: true},
@@ -197,7 +197,7 @@ func (r *TransactionHashRepository) UpdateMerkleRoot(tableName string, blockDate
 	return nil
 }
 
-func (r *TransactionHashRepository) ListUnverified(tableName string, limit int) ([]*model.TransactionHash, error) {
+func (r *TransactionHashRepository) ListUnverified(tableName string, limit int) ([]*domain.TransactionHash, error) {
 	if tableName == "" {
 		return nil, errors.New("table name cannot be empty")
 	}
@@ -206,7 +206,7 @@ func (r *TransactionHashRepository) ListUnverified(tableName string, limit int) 
 		limit = 100
 	}
 
-	var hashes []*model.TransactionHash
+	var hashes []*domain.TransactionHash
 	if err := r.db.Where("table_name = ? AND verified = ?", tableName, false).
 		Order("created_at ASC").
 		Limit(limit).
@@ -217,12 +217,12 @@ func (r *TransactionHashRepository) ListUnverified(tableName string, limit int) 
 	return hashes, nil
 }
 
-func (r *TransactionHashRepository) GetLatestByTable(tableName string) (*model.TransactionHash, error) {
+func (r *TransactionHashRepository) GetLatestByTable(tableName string) (*domain.TransactionHash, error) {
 	if tableName == "" {
 		return nil, errors.New("table name cannot be empty")
 	}
 
-	hash := &model.TransactionHash{}
+	hash := &domain.TransactionHash{}
 	if err := r.db.Where("table_name = ?", tableName).
 		Order("block_date DESC, created_at DESC").
 		First(hash).Error; err != nil {
@@ -237,7 +237,7 @@ func (r *TransactionHashRepository) GetLatestByTable(tableName string) (*model.T
 
 func (r *TransactionHashRepository) Count() (int64, error) {
 	var count int64
-	if err := r.db.Model(&model.TransactionHash{}).Count(&count).Error; err != nil {
+	if err := r.db.Model(&domain.TransactionHash{}).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count transaction hashes: %w", err)
 	}
 
@@ -250,7 +250,7 @@ func (r *TransactionHashRepository) CountByTableAndDate(tableName string, blockD
 	}
 
 	var count int64
-	if err := r.db.Model(&model.TransactionHash{}).
+	if err := r.db.Model(&domain.TransactionHash{}).
 		Where("table_name = ? AND block_date = ?", tableName, blockDate).
 		Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count transaction hashes by table and date: %w", err)

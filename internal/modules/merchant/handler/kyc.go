@@ -14,7 +14,7 @@ import (
 
 	"github.com/hxuan190/stable_payment_gateway/internal/api/dto"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
 
@@ -26,9 +26,9 @@ type StorageService interface {
 
 // KYCDocumentRepository defines the interface for KYC document data access
 type KYCDocumentRepository interface {
-	Create(ctx context.Context, doc *model.KYCDocument) error
-	GetByID(ctx context.Context, id uuid.UUID) (*model.KYCDocument, error)
-	GetByMerchantID(ctx context.Context, merchantID string) ([]*model.KYCDocument, error)
+	Create(ctx context.Context, doc *domain.KYCDocument) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.KYCDocument, error)
+	GetByMerchantID(ctx context.Context, merchantID string) ([]*domain.KYCDocument, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
@@ -193,11 +193,11 @@ func (h *KYCHandler) UploadDocument(c *gin.Context) {
 	}
 
 	// Create database record
-	kycDoc := &model.KYCDocument{
-		ID:         uuid.New().String(),
-		MerchantID: merchant.ID,
+	kycDoc := &domain.KYCDocument{
+		ID:           uuid.New().String(),
+		MerchantID:   merchant.ID,
 		DocumentType: req.DocumentType,
-		FileURL:    fileURL,
+		FileURL:      fileURL,
 		FileSizeBytes: sql.NullInt64{
 			Int64: file.Size,
 			Valid: true,
@@ -206,7 +206,7 @@ func (h *KYCHandler) UploadDocument(c *gin.Context) {
 			String: mimeType,
 			Valid:  true,
 		},
-		Status: model.KYCDocumentStatusPending,
+		Status: domain.KYCDocumentStatusPending,
 	}
 
 	err = h.kycDocRepo.Create(ctx, kycDoc)
@@ -349,8 +349,8 @@ func (h *KYCHandler) DeleteDocument(c *gin.Context) {
 	// Verify document belongs to this merchant
 	if doc.MerchantID != merchant.ID {
 		logger.WithContext(ctx).WithFields(logrus.Fields{
-			"merchant_id":         merchant.ID,
-			"document_id":         documentIDStr,
+			"merchant_id":          merchant.ID,
+			"document_id":          documentIDStr,
 			"document_merchant_id": doc.MerchantID,
 		}).Warn("Merchant attempted to delete document from different merchant")
 
@@ -359,7 +359,7 @@ func (h *KYCHandler) DeleteDocument(c *gin.Context) {
 	}
 
 	// Only allow deletion if document is pending or rejected
-	if doc.Status == model.KYCDocumentStatusApproved {
+	if doc.Status == domain.KYCDocumentStatusApproved {
 		logger.WithContext(ctx).WithFields(logrus.Fields{
 			"document_id": documentIDStr,
 			"status":      doc.Status,

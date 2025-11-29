@@ -13,7 +13,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
@@ -42,7 +42,7 @@ type TravelRuleVerificationService interface {
 	AnalyzePassiveSignals(ctx context.Context, ipAddress string, userAgent string, deviceFingerprint string, declaredCountry string) (*PassiveSignalsResult, error)
 
 	// Layer 4: eKYC Step-up
-	RequiresEKYC(ctx context.Context, travelRuleData *model.TravelRuleData, sanctionsResult *SanctionsCheckResult, passiveResult *PassiveSignalsResult) bool
+	RequiresEKYC(ctx context.Context, travelRuleData *domain.TravelRuleData, sanctionsResult *SanctionsCheckResult, passiveResult *PassiveSignalsResult) bool
 	VerifyEKYC(ctx context.Context, documentType string, documentID string, faceImage []byte) (*EKYCResult, error)
 
 	// Orchestration
@@ -399,7 +399,7 @@ func (s *travelRuleVerificationServiceImpl) isBot(userAgent string) bool {
 // ==============================================================
 
 // RequiresEKYC determines if eKYC is required based on risk factors
-func (s *travelRuleVerificationServiceImpl) RequiresEKYC(ctx context.Context, travelRuleData *model.TravelRuleData, sanctionsResult *SanctionsCheckResult, passiveResult *PassiveSignalsResult) bool {
+func (s *travelRuleVerificationServiceImpl) RequiresEKYC(ctx context.Context, travelRuleData *domain.TravelRuleData, sanctionsResult *SanctionsCheckResult, passiveResult *PassiveSignalsResult) bool {
 	// Trigger eKYC for:
 	// 1. High-value transactions (> $10,000)
 	if travelRuleData.TransactionAmount.GreaterThan(decimal.NewFromInt(10000)) {

@@ -14,8 +14,8 @@ import (
 	ledgerservice "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/service"
 	merchantrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
 	notificationservice "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
-	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
 	payoutrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
@@ -36,7 +36,7 @@ type Server struct {
 	notificationSvc       *notificationservice.NotificationService
 	reconciliationService *infrastructureservice.ReconciliationService
 	merchantRepo          *merchantrepository.MerchantRepository
-	paymentRepo           *legacy.PaymentRepositoryLegacyAdapter
+	paymentRepo           paymentDomain.PaymentRepository
 	payoutRepo            *payoutrepository.PayoutRepository
 	walletBalanceRepo     *infrastructurerepository.WalletBalanceRepository
 }
@@ -124,7 +124,6 @@ func NewServer(cfg *ServerConfig) *Server {
 
 	// Initialize new payment module
 	newPaymentRepo := paymentrepo.NewPostgresPaymentRepository(cfg.DB)
-	paymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(newPaymentRepo)
 
 	// Initialize services
 	exchangeRateService := infrastructureservice.NewExchangeRateService(
@@ -177,7 +176,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		notificationSvc:       notificationService,
 		reconciliationService: reconciliationService,
 		merchantRepo:          merchantRepo,
-		paymentRepo:           paymentRepo,
+		paymentRepo:           newPaymentRepo,
 		payoutRepo:            payoutRepo,
 		walletBalanceRepo:     walletBalanceRepo,
 	}

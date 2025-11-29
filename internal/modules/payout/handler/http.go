@@ -9,16 +9,16 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/api/middleware"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
-	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
+	payoutDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/payout/service"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 )
 
 // PayoutService defines the interface for payout business logic
 type PayoutService interface {
-	RequestPayout(input service.RequestPayoutInput) (*model.Payout, error)
-	GetPayoutByID(payoutID string) (*model.Payout, error)
-	ListPayoutsByMerchant(merchantID string, limit, offset int) ([]*model.Payout, error)
+	RequestPayout(input service.RequestPayoutInput) (*payoutDomain.Payout, error)
+	GetPayoutByID(payoutID string) (*payoutDomain.Payout, error)
+	ListPayoutsByMerchant(merchantID string, limit, offset int) ([]*payoutDomain.Payout, error)
 }
 
 // PayoutHandler handles HTTP requests for payout operations
@@ -297,8 +297,8 @@ func (h *PayoutHandler) ListPayouts(c *gin.Context) {
 
 // Helper functions
 
-// buildPayoutResponse builds a RequestPayoutResponse from a model.Payout
-func buildPayoutResponse(payout *model.Payout) RequestPayoutResponse {
+// buildPayoutResponse builds a RequestPayoutResponse from a payoutDomain.Payout
+func buildPayoutResponse(payout *payoutDomain.Payout) RequestPayoutResponse {
 	response := RequestPayoutResponse{
 		PayoutID:          payout.ID,
 		MerchantID:        payout.MerchantID,

@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/treasury/domain"
 	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 )
@@ -32,7 +33,7 @@ func NewTreasuryWalletRepository(db *sql.DB) *TreasuryWalletRepository {
 }
 
 // Create inserts a new treasury wallet
-func (r *TreasuryWalletRepository) Create(wallet *model.TreasuryWallet) error {
+func (r *TreasuryWalletRepository) Create(wallet *domain.TreasuryWallet) error {
 	if wallet == nil {
 		return errors.New("treasury wallet cannot be nil")
 	}
@@ -43,8 +44,9 @@ func (r *TreasuryWalletRepository) Create(wallet *model.TreasuryWallet) error {
 	}
 
 	// Compute address hash if not provided
+	// Compute address hash if not provided
 	if wallet.AddressHash == "" {
-		wallet.AddressHash = model.ComputeAddressHash(wallet.Address)
+		wallet.AddressHash = domain.ComputeAddressHash(wallet.Address)
 	}
 
 	query := `
@@ -122,7 +124,7 @@ func (r *TreasuryWalletRepository) Create(wallet *model.TreasuryWallet) error {
 }
 
 // GetByID retrieves a treasury wallet by ID
-func (r *TreasuryWalletRepository) GetByID(id uuid.UUID) (*model.TreasuryWallet, error) {
+func (r *TreasuryWalletRepository) GetByID(id uuid.UUID) (*domain.TreasuryWallet, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("invalid treasury wallet ID")
 	}
@@ -142,7 +144,7 @@ func (r *TreasuryWalletRepository) GetByID(id uuid.UUID) (*model.TreasuryWallet,
 		WHERE id = $1
 	`
 
-	wallet := &model.TreasuryWallet{}
+	wallet := &domain.TreasuryWallet{}
 	err := r.db.QueryRow(query, id).Scan(
 		&wallet.ID,
 		&wallet.WalletType,
@@ -189,7 +191,7 @@ func (r *TreasuryWalletRepository) GetByID(id uuid.UUID) (*model.TreasuryWallet,
 }
 
 // GetByAddress retrieves a treasury wallet by blockchain and address
-func (r *TreasuryWalletRepository) GetByAddress(blockchain model.Chain, address string) (*model.TreasuryWallet, error) {
+func (r *TreasuryWalletRepository) GetByAddress(blockchain paymentDomain.Chain, address string) (*domain.TreasuryWallet, error) {
 	if address == "" {
 		return nil, errors.New("address cannot be empty")
 	}
@@ -209,7 +211,7 @@ func (r *TreasuryWalletRepository) GetByAddress(blockchain model.Chain, address 
 		WHERE blockchain = $1 AND address = $2
 	`
 
-	wallet := &model.TreasuryWallet{}
+	wallet := &domain.TreasuryWallet{}
 	err := r.db.QueryRow(query, blockchain, address).Scan(
 		&wallet.ID,
 		&wallet.WalletType,
@@ -256,7 +258,7 @@ func (r *TreasuryWalletRepository) GetByAddress(blockchain model.Chain, address 
 }
 
 // ListByType retrieves treasury wallets by type
-func (r *TreasuryWalletRepository) ListByType(walletType model.WalletType) ([]*model.TreasuryWallet, error) {
+func (r *TreasuryWalletRepository) ListByType(walletType domain.WalletType) ([]*domain.TreasuryWallet, error) {
 	query := `
 		SELECT
 			id, wallet_type, blockchain, address, address_hash,
@@ -279,9 +281,9 @@ func (r *TreasuryWalletRepository) ListByType(walletType model.WalletType) ([]*m
 	}
 	defer rows.Close()
 
-	wallets := make([]*model.TreasuryWallet, 0)
+	wallets := make([]*domain.TreasuryWallet, 0)
 	for rows.Next() {
-		wallet := &model.TreasuryWallet{}
+		wallet := &domain.TreasuryWallet{}
 		err := rows.Scan(
 			&wallet.ID,
 			&wallet.WalletType,
@@ -330,7 +332,7 @@ func (r *TreasuryWalletRepository) ListByType(walletType model.WalletType) ([]*m
 }
 
 // ListHotWalletsNeedingSweep retrieves hot wallets that need sweeping
-func (r *TreasuryWalletRepository) ListHotWalletsNeedingSweep() ([]*model.TreasuryWallet, error) {
+func (r *TreasuryWalletRepository) ListHotWalletsNeedingSweep() ([]*domain.TreasuryWallet, error) {
 	query := `
 		SELECT
 			id, wallet_type, blockchain, address, address_hash,
@@ -356,9 +358,9 @@ func (r *TreasuryWalletRepository) ListHotWalletsNeedingSweep() ([]*model.Treasu
 	}
 	defer rows.Close()
 
-	wallets := make([]*model.TreasuryWallet, 0)
+	wallets := make([]*domain.TreasuryWallet, 0)
 	for rows.Next() {
-		wallet := &model.TreasuryWallet{}
+		wallet := &domain.TreasuryWallet{}
 		err := rows.Scan(
 			&wallet.ID,
 			&wallet.WalletType,
@@ -407,7 +409,7 @@ func (r *TreasuryWalletRepository) ListHotWalletsNeedingSweep() ([]*model.Treasu
 }
 
 // Update updates an existing treasury wallet
-func (r *TreasuryWalletRepository) Update(wallet *model.TreasuryWallet) error {
+func (r *TreasuryWalletRepository) Update(wallet *domain.TreasuryWallet) error {
 	if wallet == nil {
 		return errors.New("treasury wallet cannot be nil")
 	}
@@ -416,7 +418,7 @@ func (r *TreasuryWalletRepository) Update(wallet *model.TreasuryWallet) error {
 	}
 
 	// Update address hash
-	wallet.AddressHash = model.ComputeAddressHash(wallet.Address)
+	wallet.AddressHash = domain.ComputeAddressHash(wallet.Address)
 
 	query := `
 		UPDATE treasury_wallets SET
@@ -545,7 +547,7 @@ func (r *TreasuryWalletRepository) RecordSweep(id uuid.UUID, sweptAmountUSD deci
 }
 
 // UpdateStatus updates the wallet status
-func (r *TreasuryWalletRepository) UpdateStatus(id uuid.UUID, status model.WalletStatus) error {
+func (r *TreasuryWalletRepository) UpdateStatus(id uuid.UUID, status domain.WalletStatus) error {
 	if id == uuid.Nil {
 		return errors.New("invalid treasury wallet ID")
 	}

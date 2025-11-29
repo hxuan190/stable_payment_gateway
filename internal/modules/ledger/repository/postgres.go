@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	ledgerDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/domain"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -34,7 +34,7 @@ func NewLedgerRepository(db *gorm.DB) *LedgerRepository {
 	}
 }
 
-func (r *LedgerRepository) CreateEntry(entry *model.LedgerEntry) error {
+func (r *LedgerRepository) CreateEntry(entry *ledgerDomain.LedgerEntry) error {
 	if entry == nil {
 		return ErrInvalidLedgerEntry
 	}
@@ -58,7 +58,7 @@ func (r *LedgerRepository) CreateEntry(entry *model.LedgerEntry) error {
 	return nil
 }
 
-func (r *LedgerRepository) CreateEntries(entries []*model.LedgerEntry) error {
+func (r *LedgerRepository) CreateEntries(entries []*ledgerDomain.LedgerEntry) error {
 	if len(entries) == 0 {
 		return errors.New("no entries to create")
 	}
@@ -91,7 +91,7 @@ func (r *LedgerRepository) CreateEntries(entries []*model.LedgerEntry) error {
 			return err
 		}
 
-		if entry.EntryType == model.EntryTypeDebit {
+		if entry.EntryType == ledgerDomain.EntryTypeDebit {
 			totalDebits = totalDebits.Add(entry.Amount)
 		} else {
 			totalCredits = totalCredits.Add(entry.Amount)
@@ -116,12 +116,12 @@ func (r *LedgerRepository) CreateEntries(entries []*model.LedgerEntry) error {
 	})
 }
 
-func (r *LedgerRepository) GetByID(id string) (*model.LedgerEntry, error) {
+func (r *LedgerRepository) GetByID(id string) (*ledgerDomain.LedgerEntry, error) {
 	if id == "" {
 		return nil, errors.New("ledger entry ID cannot be empty")
 	}
 
-	entry := &model.LedgerEntry{}
+	entry := &ledgerDomain.LedgerEntry{}
 	err := r.db.Where("id = ?", id).First(entry).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -133,7 +133,7 @@ func (r *LedgerRepository) GetByID(id string) (*model.LedgerEntry, error) {
 	return entry, nil
 }
 
-func (r *LedgerRepository) GetByMerchant(merchantID string, limit, offset int) ([]*model.LedgerEntry, error) {
+func (r *LedgerRepository) GetByMerchant(merchantID string, limit, offset int) ([]*ledgerDomain.LedgerEntry, error) {
 	if merchantID == "" {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
@@ -144,7 +144,7 @@ func (r *LedgerRepository) GetByMerchant(merchantID string, limit, offset int) (
 		offset = 0
 	}
 
-	var entries []*model.LedgerEntry
+	var entries []*ledgerDomain.LedgerEntry
 	err := r.db.Where("merchant_id = ?", merchantID).
 		Order("created_at DESC").
 		Limit(limit).
@@ -157,7 +157,7 @@ func (r *LedgerRepository) GetByMerchant(merchantID string, limit, offset int) (
 	return entries, nil
 }
 
-func (r *LedgerRepository) GetByReference(refType model.ReferenceType, refID string) ([]*model.LedgerEntry, error) {
+func (r *LedgerRepository) GetByReference(refType ledgerDomain.ReferenceType, refID string) ([]*ledgerDomain.LedgerEntry, error) {
 	if refType == "" {
 		return nil, errors.New("reference type cannot be empty")
 	}
@@ -165,7 +165,7 @@ func (r *LedgerRepository) GetByReference(refType model.ReferenceType, refID str
 		return nil, errors.New("reference ID cannot be empty")
 	}
 
-	var entries []*model.LedgerEntry
+	var entries []*ledgerDomain.LedgerEntry
 	err := r.db.Where("reference_type = ? AND reference_id = ?", refType, refID).
 		Order("created_at ASC").
 		Find(&entries).Error
@@ -176,12 +176,12 @@ func (r *LedgerRepository) GetByReference(refType model.ReferenceType, refID str
 	return entries, nil
 }
 
-func (r *LedgerRepository) GetByTransactionGroup(transactionGroup string) ([]*model.LedgerEntry, error) {
+func (r *LedgerRepository) GetByTransactionGroup(transactionGroup string) ([]*ledgerDomain.LedgerEntry, error) {
 	if transactionGroup == "" {
 		return nil, ErrEmptyTransactionGroup
 	}
 
-	var entries []*model.LedgerEntry
+	var entries []*ledgerDomain.LedgerEntry
 	err := r.db.Where("transaction_group = ?", transactionGroup).
 		Order("created_at ASC").
 		Find(&entries).Error
@@ -202,7 +202,7 @@ func (r *LedgerRepository) GetAccountBalance(accountName string) (decimal.Decima
 		TotalCredits decimal.Decimal
 	}
 
-	err := r.db.Model(&model.LedgerEntry{}).
+	err := r.db.Model(&ledgerDomain.LedgerEntry{}).
 		Select("COALESCE(SUM(CASE WHEN debit_account = ? THEN amount ELSE 0 END), 0) as total_debits, "+
 			"COALESCE(SUM(CASE WHEN credit_account = ? THEN amount ELSE 0 END), 0) as total_credits", accountName, accountName).
 		Where("debit_account = ? OR credit_account = ?", accountName, accountName).
@@ -216,7 +216,7 @@ func (r *LedgerRepository) GetAccountBalance(accountName string) (decimal.Decima
 
 func (r *LedgerRepository) Count() (int64, error) {
 	var count int64
-	err := r.db.Model(&model.LedgerEntry{}).Count(&count).Error
+	err := r.db.Model(&ledgerDomain.LedgerEntry{}).Count(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to count ledger entries: %w", err)
 	}
@@ -230,7 +230,7 @@ func (r *LedgerRepository) CountByMerchant(merchantID string) (int64, error) {
 	}
 
 	var count int64
-	err := r.db.Model(&model.LedgerEntry{}).Where("merchant_id = ?", merchantID).Count(&count).Error
+	err := r.db.Model(&ledgerDomain.LedgerEntry{}).Where("merchant_id = ?", merchantID).Count(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to count ledger entries by merchant: %w", err)
 	}
@@ -246,7 +246,7 @@ func (r *LedgerRepository) ValidateDoubleEntry() error {
 		TotalCredits     decimal.Decimal
 	}
 
-	err := r.db.Model(&model.LedgerEntry{}).
+	err := r.db.Model(&ledgerDomain.LedgerEntry{}).
 		Select("transaction_group, currency, " +
 			"SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END) as total_debits, " +
 			"SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END) as total_credits").
@@ -269,7 +269,7 @@ func (r *LedgerRepository) ValidateDoubleEntry() error {
 }
 
 // validateEntry validates a ledger entry before insertion
-func (r *LedgerRepository) validateEntry(entry *model.LedgerEntry) error {
+func (r *LedgerRepository) validateEntry(entry *ledgerDomain.LedgerEntry) error {
 	if entry.DebitAccount == "" {
 		return errors.New("debit account cannot be empty")
 	}
@@ -297,7 +297,7 @@ func (r *LedgerRepository) validateEntry(entry *model.LedgerEntry) error {
 	if entry.EntryType == "" {
 		return errors.New("entry type cannot be empty")
 	}
-	if entry.EntryType != model.EntryTypeDebit && entry.EntryType != model.EntryTypeCredit {
+	if entry.EntryType != ledgerDomain.EntryTypeDebit && entry.EntryType != ledgerDomain.EntryTypeCredit {
 		return errors.New("entry type must be either 'debit' or 'credit'")
 	}
 

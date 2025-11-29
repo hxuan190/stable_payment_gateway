@@ -5,17 +5,19 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	notificationService "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/sirupsen/logrus"
 )
 
 // PaymentRepositoryInterface defines the interface for payment operations needed by compliance
 type PaymentRepositoryInterface interface {
-	GetByID(id string) (*model.Payment, error)
-	Update(payment *model.Payment) error
-	UpdateStatus(id string, status model.PaymentStatus) error
+	GetByID(id string) (*paymentDomain.Payment, error)
+	Update(payment *paymentDomain.Payment) error
+	UpdateStatus(id string, status paymentDomain.PaymentStatus) error
 }
 
 // ComplianceAlertService handles business logic for compliance alerts
@@ -64,7 +66,7 @@ func (s *ComplianceAlertService) CreateSanctionedAddressAlert(
 	riskScore int,
 	riskFlags []string,
 	evidence map[string]interface{},
-) (*model.ComplianceAlert, error) {
+) (*domain.ComplianceAlert, error) {
 	// Get payment details
 	payment, err := s.paymentRepo.GetByID(paymentID.String())
 	if err != nil {
@@ -72,9 +74,9 @@ func (s *ComplianceAlertService) CreateSanctionedAddressAlert(
 	}
 
 	// Create the alert
-	alert := model.NewComplianceAlert(
-		model.AlertTypeSanctionedAddress,
-		model.SeverityCritical,
+	alert := domain.NewComplianceAlert(
+		domain.AlertTypeSanctionedAddress,
+		domain.SeverityCritical,
 		fmt.Sprintf("Sanctioned address detected: %s on %s blockchain. Payment ID: %s", fromAddress, blockchain, paymentID),
 	)
 
@@ -136,7 +138,7 @@ func (s *ComplianceAlertService) CreateHighRiskAlert(
 	riskScore int,
 	riskFlags []string,
 	evidence map[string]interface{},
-) (*model.ComplianceAlert, error) {
+) (*domain.ComplianceAlert, error) {
 	// Get payment details
 	payment, err := s.paymentRepo.GetByID(paymentID.String())
 	if err != nil {
@@ -144,16 +146,16 @@ func (s *ComplianceAlertService) CreateHighRiskAlert(
 	}
 
 	// Determine severity based on risk score
-	severity := model.SeverityMedium
+	severity := domain.SeverityMedium
 	if riskScore >= 80 {
-		severity = model.SeverityCritical
+		severity = domain.SeverityCritical
 	} else if riskScore >= 60 {
-		severity = model.SeverityHigh
+		severity = domain.SeverityHigh
 	}
 
 	// Create the alert
-	alert := model.NewComplianceAlert(
-		model.AlertTypeHighRiskAddress,
+	alert := domain.NewComplianceAlert(
+		domain.AlertTypeHighRiskAddress,
 		severity,
 		fmt.Sprintf("High-risk address detected: %s on %s blockchain. Risk score: %d. Payment ID: %s", fromAddress, blockchain, riskScore, paymentID),
 	)
@@ -177,9 +179,9 @@ func (s *ComplianceAlertService) CreateHighRiskAlert(
 
 	// Set recommended action based on severity
 	var recommendedAction string
-	if severity == model.SeverityCritical {
+	if severity == domain.SeverityCritical {
 		recommendedAction = "URGENT: Review immediately, may need to freeze payment"
-	} else if severity == model.SeverityHigh {
+	} else if severity == domain.SeverityHigh {
 		recommendedAction = "Review within 24 hours, verify merchant and transaction legitimacy"
 	} else {
 		recommendedAction = "Review when possible, monitor for patterns"
@@ -201,7 +203,7 @@ func (s *ComplianceAlertService) CreateHighRiskAlert(
 	}).Warn("High-risk address alert created")
 
 	// For critical severity, flag the payment
-	if severity == model.SeverityCritical {
+	if severity == domain.SeverityCritical {
 		if err := s.FlagPaymentForReview(ctx, alert, paymentID); err != nil {
 			s.logger.WithError(err).Error("Failed to flag payment for review")
 		}
@@ -216,7 +218,7 @@ func (s *ComplianceAlertService) CreateHighRiskAlert(
 }
 
 // FlagPaymentForReview flags a payment for manual review and prevents automatic processing
-func (s *ComplianceAlertService) FlagPaymentForReview(ctx context.Context, alert *model.ComplianceAlert, paymentID uuid.UUID) error {
+func (s *ComplianceAlertService) FlagPaymentForReview(ctx context.Context, alert *domain.ComplianceAlert, paymentID uuid.UUID) error {
 	// Get the payment
 	payment, err := s.paymentRepo.GetByID(paymentID.String())
 	if err != nil {
@@ -226,7 +228,7 @@ func (s *ComplianceAlertService) FlagPaymentForReview(ctx context.Context, alert
 	// Update payment status to require manual review
 	// We'll add a "flagged" status or use the metadata field
 	if payment.Metadata == nil {
-		payment.Metadata = make(model.JSONBMap)
+		payment.Metadata = make(database.JSONBMap)
 	}
 	payment.Metadata["compliance_flagged"] = true
 	payment.Metadata["compliance_alert_id"] = alert.ID.String()
@@ -238,7 +240,7 @@ func (s *ComplianceAlertService) FlagPaymentForReview(ctx context.Context, alert
 	}
 
 	// Record action in alert
-	alert.AddAction(model.ActionPaymentFlagged)
+	alert.AddAction(domain.ActionPaymentFlagged)
 	if err := s.repo.Update(ctx, alert); err != nil {
 		s.logger.WithError(err).Error("Failed to update alert with action")
 	}
@@ -252,7 +254,7 @@ func (s *ComplianceAlertService) FlagPaymentForReview(ctx context.Context, alert
 }
 
 // SendAlertNotification sends email notification to compliance team
-func (s *ComplianceAlertService) SendAlertNotification(ctx context.Context, alert *model.ComplianceAlert) error {
+func (s *ComplianceAlertService) SendAlertNotification(ctx context.Context, alert *domain.ComplianceAlert) error {
 	if s.notificationService == nil {
 		s.logger.Warn("Notification service not configured, skipping alert notification")
 		return nil
@@ -332,17 +334,17 @@ func (s *ComplianceAlertService) SendAlertNotification(ctx context.Context, aler
 }
 
 // GetAlert retrieves a compliance alert by ID
-func (s *ComplianceAlertService) GetAlert(ctx context.Context, id uuid.UUID) (*model.ComplianceAlert, error) {
+func (s *ComplianceAlertService) GetAlert(ctx context.Context, id uuid.UUID) (*domain.ComplianceAlert, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
 // GetAlertsByPayment retrieves all alerts for a payment
-func (s *ComplianceAlertService) GetAlertsByPayment(ctx context.Context, paymentID uuid.UUID) ([]*model.ComplianceAlert, error) {
+func (s *ComplianceAlertService) GetAlertsByPayment(ctx context.Context, paymentID uuid.UUID) ([]*domain.ComplianceAlert, error) {
 	return s.repo.GetByPaymentID(ctx, paymentID)
 }
 
 // GetOpenAlerts retrieves all open compliance alerts
-func (s *ComplianceAlertService) GetOpenAlerts(ctx context.Context, limit, offset int) ([]*model.ComplianceAlert, error) {
+func (s *ComplianceAlertService) GetOpenAlerts(ctx context.Context, limit, offset int) ([]*domain.ComplianceAlert, error) {
 	return s.repo.GetOpenAlerts(ctx, limit, offset)
 }
 

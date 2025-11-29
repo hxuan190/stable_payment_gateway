@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	notificationservice "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
+	walletDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/wallet/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/shopspring/decimal"
 )
@@ -166,10 +167,10 @@ func (s *Server) handleBalanceCheck(ctx context.Context, task *asynq.Task) error
 	})
 
 	// Save balance to database
-	walletBalance := &model.WalletBalanceSnapshot{
+	walletBalance := &walletDomain.WalletBalanceSnapshot{
 		WalletAddress:       walletAddress,
-		Chain:               model.ChainSolana,
-		Network:             model.NetworkDevnet, // TODO: Get from config
+		Chain:               paymentDomain.ChainSolana,
+		Network:             walletDomain.NetworkDevnet, // TODO: Get from config
 		NativeBalance:       decimal.Zero,
 		NativeCurrency:      "SOL",
 		USDTBalance:         usdtBalance,
@@ -278,7 +279,7 @@ func (s *Server) handleDailySettlementReport(ctx context.Context, task *asynq.Ta
 	var walletBalance decimal.Decimal
 	if s.solanaWallet != nil {
 		walletAddress := s.solanaWallet.GetAddress()
-		latestBalance, err := s.walletBalanceRepo.GetLatest(ctx, model.ChainSolana, walletAddress)
+		latestBalance, err := s.walletBalanceRepo.GetLatest(ctx, paymentDomain.ChainSolana, walletAddress)
 		if err != nil {
 			logger.Warn("Failed to get latest wallet balance", logger.Fields{
 				"error": err.Error(),
@@ -337,10 +338,8 @@ func (s *Server) handleDailyReconciliation(ctx context.Context, task *asynq.Task
 		})
 
 		// Check if this is a critical deficit error
-		if err.Error() != "" && err.Error() != "" {
-			// This is critical - the task should fail so alerts are triggered
-			return fmt.Errorf("CRITICAL: %w", err)
-		}
+		// This is critical - the task should fail so alerts are triggered
+		return fmt.Errorf("CRITICAL: %w", err)
 
 		// Non-critical error, just log
 		return err

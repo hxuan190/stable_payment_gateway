@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -157,7 +157,7 @@ func (h *TravelRuleHandler) CreateTravelRuleData(c *gin.Context) {
 	}
 
 	// Build Travel Rule data model
-	data := &model.TravelRuleData{
+	data := &domain.TravelRuleData{
 		PaymentID: req.PaymentID,
 
 		// Payer Information
@@ -382,7 +382,7 @@ func (h *TravelRuleHandler) ListTravelRuleData(c *gin.Context) {
 
 // Helper functions
 
-func (h *TravelRuleHandler) modelToResponse(data *model.TravelRuleData) *TravelRuleDataResponse {
+func (h *TravelRuleHandler) modelToResponse(data *domain.TravelRuleData) *TravelRuleDataResponse {
 	response := &TravelRuleDataResponse{
 		ID:        data.ID,
 		PaymentID: data.PaymentID,

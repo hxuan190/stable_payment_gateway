@@ -7,7 +7,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
+	walletDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/wallet/domain"
 )
 
 type WalletBalanceRepository struct {
@@ -20,7 +21,7 @@ func NewWalletBalanceRepository(db *gorm.DB) *WalletBalanceRepository {
 	}
 }
 
-func (r *WalletBalanceRepository) Create(ctx context.Context, snapshot *model.WalletBalanceSnapshot) error {
+func (r *WalletBalanceRepository) Create(ctx context.Context, snapshot *walletDomain.WalletBalanceSnapshot) error {
 	if snapshot.ID == "" {
 		snapshot.ID = uuid.New().String()
 	}
@@ -40,8 +41,8 @@ func (r *WalletBalanceRepository) Create(ctx context.Context, snapshot *model.Wa
 	return nil
 }
 
-func (r *WalletBalanceRepository) GetLatest(ctx context.Context, chain model.Chain, walletAddress string) (*model.WalletBalanceSnapshot, error) {
-	snapshot := &model.WalletBalanceSnapshot{}
+func (r *WalletBalanceRepository) GetLatest(ctx context.Context, chain paymentDomain.Chain, walletAddress string) (*walletDomain.WalletBalanceSnapshot, error) {
+	snapshot := &walletDomain.WalletBalanceSnapshot{}
 	if err := r.db.WithContext(ctx).Where("chain = ? AND wallet_address = ?", chain, walletAddress).Order("snapshot_at DESC").First(snapshot).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -52,12 +53,12 @@ func (r *WalletBalanceRepository) GetLatest(ctx context.Context, chain model.Cha
 	return snapshot, nil
 }
 
-func (r *WalletBalanceRepository) GetHistory(ctx context.Context, chain model.Chain, walletAddress string, startTime, endTime time.Time, limit int) ([]*model.WalletBalanceSnapshot, error) {
+func (r *WalletBalanceRepository) GetHistory(ctx context.Context, chain paymentDomain.Chain, walletAddress string, startTime, endTime time.Time, limit int) ([]*walletDomain.WalletBalanceSnapshot, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 
-	var snapshots []*model.WalletBalanceSnapshot
+	var snapshots []*walletDomain.WalletBalanceSnapshot
 	if err := r.db.WithContext(ctx).
 		Where("chain = ? AND wallet_address = ? AND snapshot_at >= ? AND snapshot_at <= ?", chain, walletAddress, startTime, endTime).
 		Order("snapshot_at DESC").
@@ -70,7 +71,7 @@ func (r *WalletBalanceRepository) GetHistory(ctx context.Context, chain model.Ch
 }
 
 func (r *WalletBalanceRepository) MarkAlertSent(ctx context.Context, snapshotID string) error {
-	if err := r.db.WithContext(ctx).Model(&model.WalletBalanceSnapshot{}).Where("id = ?", snapshotID).Updates(map[string]interface{}{
+	if err := r.db.WithContext(ctx).Model(&walletDomain.WalletBalanceSnapshot{}).Where("id = ?", snapshotID).Updates(map[string]interface{}{
 		"alert_sent":    true,
 		"alert_sent_at": time.Now().UTC(),
 	}).Error; err != nil {
@@ -80,8 +81,8 @@ func (r *WalletBalanceRepository) MarkAlertSent(ctx context.Context, snapshotID 
 	return nil
 }
 
-func (r *WalletBalanceRepository) GetPendingAlerts(ctx context.Context) ([]*model.WalletBalanceSnapshot, error) {
-	var snapshots []*model.WalletBalanceSnapshot
+func (r *WalletBalanceRepository) GetPendingAlerts(ctx context.Context) ([]*walletDomain.WalletBalanceSnapshot, error) {
+	var snapshots []*walletDomain.WalletBalanceSnapshot
 	if err := r.db.WithContext(ctx).
 		Where("(is_below_min_threshold = ? OR is_above_max_threshold = ?) AND alert_sent = ?", true, true, false).
 		Order("snapshot_at DESC").

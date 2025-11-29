@@ -9,7 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/xuri/excelize/v2"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 )
 
@@ -72,7 +72,7 @@ func (s *SBVReportService) GenerateExcelReport(ctx context.Context, req SBVRepor
 
 	// Filter by minimum amount if specified
 	if req.MinAmount.GreaterThan(decimal.Zero) {
-		filtered := make([]*model.TravelRuleData, 0)
+		filtered := make([]*domain.TravelRuleData, 0)
 		for _, tr := range travelRuleData {
 			if tr.TransactionAmount.GreaterThanOrEqual(req.MinAmount) {
 				filtered = append(filtered, tr)
@@ -306,5 +306,5 @@ func (s *SBVReportService) GenerateExcelReport(ctx context.Context, req SBVRepor
 
 // TravelRuleRepository defines the interface for travel rule data access
 type TravelRuleRepository interface {
-	GetByDateRange(startDate, endDate time.Time) ([]*model.TravelRuleData, error)
+	GetByDateRange(startDate, endDate time.Time) ([]*domain.TravelRuleData, error)
 }

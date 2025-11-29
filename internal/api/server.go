@@ -180,7 +180,6 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 	kycDocumentRepo := infrastructurerepository.NewKYCDocumentRepository(s.db)
 	// AML Rule repo requires GORM - skip for now
 	var amlRuleRepo *compliancerepository.AMLRuleRepository
-	legacyPaymentRepo := legacy.NewPaymentRepositoryLegacyAdapter(paymentrepo.NewPostgresPaymentRepository(s.db))
 
 	// Initialize NEW Payment Module (Hexagonal Architecture) - needed early for AML service
 	paymentRepo := paymentrepo.NewPostgresPaymentRepository(s.db)
@@ -195,7 +194,7 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		logger.GetLogger().Logger,
 	)
 	// Initialize merchant service for admin
-	merchantService := merchantservice.NewMerchantService(*merchantRepo, s.db)
+	merchantService := merchantservice.NewMerchantService(merchantRepo, s.db)
 
 	// Initialize compliance services (must be before payment service)
 	trmClient := s.initTRMLabsClient()
@@ -297,7 +296,7 @@ func (s *Server) setupRoutes(router *gin.Engine) {
 		complianceService,
 		merchantRepo,
 		payoutRepo,
-		legacyPaymentRepo,
+		paymentRepo,
 		balanceRepo,
 		travelRuleRepo,
 		kycDocumentRepo,

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/domain"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -21,7 +21,7 @@ func NewComplianceAlertRepository(db *sqlx.DB) *ComplianceAlertRepository {
 }
 
 // Create creates a new compliance alert
-func (r *ComplianceAlertRepository) Create(ctx context.Context, alert *model.ComplianceAlert) error {
+func (r *ComplianceAlertRepository) Create(ctx context.Context, alert *domain.ComplianceAlert) error {
 	query := `
 		INSERT INTO compliance_alerts (
 			id, alert_type, severity, status,
@@ -53,12 +53,12 @@ func (r *ComplianceAlertRepository) Create(ctx context.Context, alert *model.Com
 }
 
 // GetByID retrieves a compliance alert by ID
-func (r *ComplianceAlertRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.ComplianceAlert, error) {
+func (r *ComplianceAlertRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.ComplianceAlert, error) {
 	query := `
 		SELECT * FROM compliance_alerts WHERE id = $1
 	`
 
-	var alert model.ComplianceAlert
+	var alert domain.ComplianceAlert
 	err := r.db.GetContext(ctx, &alert, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -71,14 +71,14 @@ func (r *ComplianceAlertRepository) GetByID(ctx context.Context, id uuid.UUID) (
 }
 
 // GetByPaymentID retrieves all compliance alerts for a payment
-func (r *ComplianceAlertRepository) GetByPaymentID(ctx context.Context, paymentID uuid.UUID) ([]*model.ComplianceAlert, error) {
+func (r *ComplianceAlertRepository) GetByPaymentID(ctx context.Context, paymentID uuid.UUID) ([]*domain.ComplianceAlert, error) {
 	query := `
 		SELECT * FROM compliance_alerts
 		WHERE payment_id = $1
 		ORDER BY created_at DESC
 	`
 
-	var alerts []*model.ComplianceAlert
+	var alerts []*domain.ComplianceAlert
 	err := r.db.SelectContext(ctx, &alerts, query, paymentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get compliance alerts by payment: %w", err)
@@ -88,14 +88,14 @@ func (r *ComplianceAlertRepository) GetByPaymentID(ctx context.Context, paymentI
 }
 
 // GetByMerchantID retrieves all compliance alerts for a merchant
-func (r *ComplianceAlertRepository) GetByMerchantID(ctx context.Context, merchantID uuid.UUID) ([]*model.ComplianceAlert, error) {
+func (r *ComplianceAlertRepository) GetByMerchantID(ctx context.Context, merchantID uuid.UUID) ([]*domain.ComplianceAlert, error) {
 	query := `
 		SELECT * FROM compliance_alerts
 		WHERE merchant_id = $1
 		ORDER BY created_at DESC
 	`
 
-	var alerts []*model.ComplianceAlert
+	var alerts []*domain.ComplianceAlert
 	err := r.db.SelectContext(ctx, &alerts, query, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get compliance alerts by merchant: %w", err)
@@ -105,7 +105,7 @@ func (r *ComplianceAlertRepository) GetByMerchantID(ctx context.Context, merchan
 }
 
 // GetByStatus retrieves compliance alerts by status
-func (r *ComplianceAlertRepository) GetByStatus(ctx context.Context, status string, limit, offset int) ([]*model.ComplianceAlert, error) {
+func (r *ComplianceAlertRepository) GetByStatus(ctx context.Context, status string, limit, offset int) ([]*domain.ComplianceAlert, error) {
 	query := `
 		SELECT * FROM compliance_alerts
 		WHERE status = $1
@@ -113,7 +113,7 @@ func (r *ComplianceAlertRepository) GetByStatus(ctx context.Context, status stri
 		LIMIT $2 OFFSET $3
 	`
 
-	var alerts []*model.ComplianceAlert
+	var alerts []*domain.ComplianceAlert
 	err := r.db.SelectContext(ctx, &alerts, query, status, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get compliance alerts by status: %w", err)
@@ -123,7 +123,7 @@ func (r *ComplianceAlertRepository) GetByStatus(ctx context.Context, status stri
 }
 
 // GetBySeverity retrieves compliance alerts by severity
-func (r *ComplianceAlertRepository) GetBySeverity(ctx context.Context, severity string, limit, offset int) ([]*model.ComplianceAlert, error) {
+func (r *ComplianceAlertRepository) GetBySeverity(ctx context.Context, severity string, limit, offset int) ([]*domain.ComplianceAlert, error) {
 	query := `
 		SELECT * FROM compliance_alerts
 		WHERE severity = $1
@@ -131,7 +131,7 @@ func (r *ComplianceAlertRepository) GetBySeverity(ctx context.Context, severity 
 		LIMIT $2 OFFSET $3
 	`
 
-	var alerts []*model.ComplianceAlert
+	var alerts []*domain.ComplianceAlert
 	err := r.db.SelectContext(ctx, &alerts, query, severity, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get compliance alerts by severity: %w", err)
@@ -141,17 +141,17 @@ func (r *ComplianceAlertRepository) GetBySeverity(ctx context.Context, severity 
 }
 
 // GetOpenAlerts retrieves all open compliance alerts
-func (r *ComplianceAlertRepository) GetOpenAlerts(ctx context.Context, limit, offset int) ([]*model.ComplianceAlert, error) {
-	return r.GetByStatus(ctx, model.AlertStatusOpen, limit, offset)
+func (r *ComplianceAlertRepository) GetOpenAlerts(ctx context.Context, limit, offset int) ([]*domain.ComplianceAlert, error) {
+	return r.GetByStatus(ctx, domain.AlertStatusOpen, limit, offset)
 }
 
 // GetCriticalAlerts retrieves all critical severity alerts
-func (r *ComplianceAlertRepository) GetCriticalAlerts(ctx context.Context, limit, offset int) ([]*model.ComplianceAlert, error) {
-	return r.GetBySeverity(ctx, model.SeverityCritical, limit, offset)
+func (r *ComplianceAlertRepository) GetCriticalAlerts(ctx context.Context, limit, offset int) ([]*domain.ComplianceAlert, error) {
+	return r.GetBySeverity(ctx, domain.SeverityCritical, limit, offset)
 }
 
 // Update updates a compliance alert
-func (r *ComplianceAlertRepository) Update(ctx context.Context, alert *model.ComplianceAlert) error {
+func (r *ComplianceAlertRepository) Update(ctx context.Context, alert *domain.ComplianceAlert) error {
 	query := `
 		UPDATE compliance_alerts SET
 			alert_type = :alert_type,

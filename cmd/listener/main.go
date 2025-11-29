@@ -12,7 +12,6 @@ import (
 	solanasdk "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	auditrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/audit/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/bsc"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/blockchain/solana"
@@ -23,6 +22,7 @@ import (
 	paymentrepo "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/repository"
 	paymentport "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/port"
 	paymentservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/service"
+	walletDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/wallet/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/trmlabs"
@@ -253,17 +253,17 @@ func main() {
 	fmt.Println("Blockchain listener stopped successfully")
 }
 
-// getNetworkFromString converts string network to model.Network
-func getNetworkFromString(network string) model.Network {
+// getNetworkFromString converts string network to walletDomain.Network
+func getNetworkFromString(network string) walletDomain.Network {
 	switch network {
 	case "mainnet":
-		return model.NetworkMainnet
+		return walletDomain.NetworkMainnet
 	case "testnet":
-		return model.NetworkTestnet
+		return walletDomain.NetworkTestnet
 	case "devnet":
-		return model.NetworkDevnet
+		return walletDomain.NetworkDevnet
 	default:
-		return model.NetworkDevnet
+		return walletDomain.NetworkDevnet
 	}
 }
 

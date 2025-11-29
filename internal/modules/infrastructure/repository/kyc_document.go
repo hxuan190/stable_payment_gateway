@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 )
 
 var (
@@ -19,24 +19,24 @@ var (
 )
 
 type KYCDocumentRepository interface {
-	Create(ctx context.Context, document *model.KYCDocument) error
-	GetByID(ctx context.Context, id uuid.UUID) (*model.KYCDocument, error)
-	GetByMerchantID(ctx context.Context, merchantID string) ([]*model.KYCDocument, error)
-	List(ctx context.Context, filter KYCDocumentFilter) ([]*model.KYCDocument, error)
-	ListByStatus(ctx context.Context, status model.KYCDocumentStatus) ([]*model.KYCDocument, error)
-	Update(ctx context.Context, document *model.KYCDocument) error
+	Create(ctx context.Context, document *merchantDomain.KYCDocument) error
+	GetByID(ctx context.Context, id uuid.UUID) (*merchantDomain.KYCDocument, error)
+	GetByMerchantID(ctx context.Context, merchantID string) ([]*merchantDomain.KYCDocument, error)
+	List(ctx context.Context, filter KYCDocumentFilter) ([]*merchantDomain.KYCDocument, error)
+	ListByStatus(ctx context.Context, status merchantDomain.KYCDocumentStatus) ([]*merchantDomain.KYCDocument, error)
+	Update(ctx context.Context, document *merchantDomain.KYCDocument) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	Approve(ctx context.Context, id string, reviewerID string, notes string) error
 	Reject(ctx context.Context, id string, reviewerID string, notes string) error
-	GetPendingDocuments(ctx context.Context, limit int) ([]*model.KYCDocument, error)
-	CountByMerchantAndStatus(ctx context.Context, merchantID string, status model.KYCDocumentStatus) (int64, error)
-	HasApprovedDocumentOfType(ctx context.Context, merchantID string, docType model.KYCDocumentType) (bool, error)
+	GetPendingDocuments(ctx context.Context, limit int) ([]*merchantDomain.KYCDocument, error)
+	CountByMerchantAndStatus(ctx context.Context, merchantID string, status merchantDomain.KYCDocumentStatus) (int64, error)
+	HasApprovedDocumentOfType(ctx context.Context, merchantID string, docType merchantDomain.KYCDocumentType) (bool, error)
 }
 
 type KYCDocumentFilter struct {
 	MerchantID   string
 	DocumentType string
-	Status       model.KYCDocumentStatus
+	Status       merchantDomain.KYCDocumentStatus
 	Limit        int
 	Offset       int
 }
@@ -49,11 +49,11 @@ func NewKYCDocumentRepository(db *gorm.DB) KYCDocumentRepository {
 	return &kycDocumentRepositoryImpl{db: db}
 }
 
-func (r *kycDocumentRepositoryImpl) HasApprovedDocumentOfType(ctx context.Context, merchantID string, docType model.KYCDocumentType) (bool, error) {
+func (r *kycDocumentRepositoryImpl) HasApprovedDocumentOfType(ctx context.Context, merchantID string, docType merchantDomain.KYCDocumentType) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).
-		Model(&model.KYCDocument{}).
-		Where("merchant_id = ? AND document_type = ? AND status = ?", merchantID, string(docType), model.KYCDocumentStatusApproved).
+		Model(&merchantDomain.KYCDocument{}).
+		Where("merchant_id = ? AND document_type = ? AND status = ?", merchantID, string(docType), merchantDomain.KYCDocumentStatusApproved).
 		Count(&count).Error
 	if err != nil {
 		return false, err
@@ -61,7 +61,7 @@ func (r *kycDocumentRepositoryImpl) HasApprovedDocumentOfType(ctx context.Contex
 	return count > 0, nil
 }
 
-func (r *kycDocumentRepositoryImpl) Create(ctx context.Context, document *model.KYCDocument) error {
+func (r *kycDocumentRepositoryImpl) Create(ctx context.Context, document *merchantDomain.KYCDocument) error {
 	if document.ID == "" {
 		document.ID = uuid.New().String()
 	}
@@ -74,8 +74,8 @@ func (r *kycDocumentRepositoryImpl) Create(ctx context.Context, document *model.
 	return r.db.WithContext(ctx).Create(document).Error
 }
 
-func (r *kycDocumentRepositoryImpl) GetByID(ctx context.Context, id uuid.UUID) (*model.KYCDocument, error) {
-	var document model.KYCDocument
+func (r *kycDocumentRepositoryImpl) GetByID(ctx context.Context, id uuid.UUID) (*merchantDomain.KYCDocument, error) {
+	var document merchantDomain.KYCDocument
 	err := r.db.WithContext(ctx).Where("id = ?", id.String()).First(&document).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -86,14 +86,14 @@ func (r *kycDocumentRepositoryImpl) GetByID(ctx context.Context, id uuid.UUID) (
 	return &document, nil
 }
 
-func (r *kycDocumentRepositoryImpl) GetByMerchantID(ctx context.Context, merchantID string) ([]*model.KYCDocument, error) {
-	var documents []*model.KYCDocument
+func (r *kycDocumentRepositoryImpl) GetByMerchantID(ctx context.Context, merchantID string) ([]*merchantDomain.KYCDocument, error) {
+	var documents []*merchantDomain.KYCDocument
 	err := r.db.WithContext(ctx).Where("merchant_id = ?", merchantID).Order("created_at DESC").Find(&documents).Error
 	return documents, err
 }
 
-func (r *kycDocumentRepositoryImpl) List(ctx context.Context, filter KYCDocumentFilter) ([]*model.KYCDocument, error) {
-	query := r.db.WithContext(ctx).Model(&model.KYCDocument{})
+func (r *kycDocumentRepositoryImpl) List(ctx context.Context, filter KYCDocumentFilter) ([]*merchantDomain.KYCDocument, error) {
+	query := r.db.WithContext(ctx).Model(&merchantDomain.KYCDocument{})
 
 	if filter.MerchantID != "" {
 		query = query.Where("merchant_id = ?", filter.MerchantID)
@@ -111,24 +111,24 @@ func (r *kycDocumentRepositoryImpl) List(ctx context.Context, filter KYCDocument
 		query = query.Offset(filter.Offset)
 	}
 
-	var documents []*model.KYCDocument
+	var documents []*merchantDomain.KYCDocument
 	err := query.Order("created_at DESC").Find(&documents).Error
 	return documents, err
 }
 
-func (r *kycDocumentRepositoryImpl) ListByStatus(ctx context.Context, status model.KYCDocumentStatus) ([]*model.KYCDocument, error) {
-	var documents []*model.KYCDocument
+func (r *kycDocumentRepositoryImpl) ListByStatus(ctx context.Context, status merchantDomain.KYCDocumentStatus) ([]*merchantDomain.KYCDocument, error) {
+	var documents []*merchantDomain.KYCDocument
 	err := r.db.WithContext(ctx).Where("status = ?", status).Order("created_at DESC").Find(&documents).Error
 	return documents, err
 }
 
-func (r *kycDocumentRepositoryImpl) Update(ctx context.Context, document *model.KYCDocument) error {
+func (r *kycDocumentRepositoryImpl) Update(ctx context.Context, document *merchantDomain.KYCDocument) error {
 	document.UpdatedAt = time.Now().UTC()
 	return r.db.WithContext(ctx).Save(document).Error
 }
 
 func (r *kycDocumentRepositoryImpl) Delete(ctx context.Context, id uuid.UUID) error {
-	result := r.db.WithContext(ctx).Where("id = ?", id.String()).Delete(&model.KYCDocument{})
+	result := r.db.WithContext(ctx).Where("id = ?", id.String()).Delete(&merchantDomain.KYCDocument{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -139,7 +139,7 @@ func (r *kycDocumentRepositoryImpl) Delete(ctx context.Context, id uuid.UUID) er
 }
 
 func (r *kycDocumentRepositoryImpl) Approve(ctx context.Context, id string, reviewerID string, notes string) error {
-	var document model.KYCDocument
+	var document merchantDomain.KYCDocument
 	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&document).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrKYCDocumentNotFound
@@ -153,18 +153,18 @@ func (r *kycDocumentRepositoryImpl) Approve(ctx context.Context, id string, revi
 
 	now := time.Now().UTC()
 	updates := map[string]interface{}{
-		"status":         model.KYCDocumentStatusApproved,
+		"status":         merchantDomain.KYCDocumentStatusApproved,
 		"reviewed_by":    sql.NullString{String: reviewerID, Valid: true},
 		"reviewed_at":    sql.NullTime{Time: now, Valid: true},
 		"reviewer_notes": sql.NullString{String: notes, Valid: notes != ""},
 		"updated_at":     now,
 	}
 
-	return r.db.WithContext(ctx).Model(&model.KYCDocument{}).Where("id = ?", id).Updates(updates).Error
+	return r.db.WithContext(ctx).Model(&merchantDomain.KYCDocument{}).Where("id = ?", id).Updates(updates).Error
 }
 
 func (r *kycDocumentRepositoryImpl) Reject(ctx context.Context, id string, reviewerID string, notes string) error {
-	var document model.KYCDocument
+	var document merchantDomain.KYCDocument
 	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&document).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrKYCDocumentNotFound
@@ -178,33 +178,33 @@ func (r *kycDocumentRepositoryImpl) Reject(ctx context.Context, id string, revie
 
 	now := time.Now().UTC()
 	updates := map[string]interface{}{
-		"status":         model.KYCDocumentStatusRejected,
+		"status":         merchantDomain.KYCDocumentStatusRejected,
 		"reviewed_by":    sql.NullString{String: reviewerID, Valid: true},
 		"reviewed_at":    sql.NullTime{Time: now, Valid: true},
 		"reviewer_notes": sql.NullString{String: notes, Valid: notes != ""},
 		"updated_at":     now,
 	}
 
-	return r.db.WithContext(ctx).Model(&model.KYCDocument{}).Where("id = ?", id).Updates(updates).Error
+	return r.db.WithContext(ctx).Model(&merchantDomain.KYCDocument{}).Where("id = ?", id).Updates(updates).Error
 }
 
-func (r *kycDocumentRepositoryImpl) GetPendingDocuments(ctx context.Context, limit int) ([]*model.KYCDocument, error) {
+func (r *kycDocumentRepositoryImpl) GetPendingDocuments(ctx context.Context, limit int) ([]*merchantDomain.KYCDocument, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	var documents []*model.KYCDocument
+	var documents []*merchantDomain.KYCDocument
 	err := r.db.WithContext(ctx).
-		Where("status = ?", model.KYCDocumentStatusPending).
+		Where("status = ?", merchantDomain.KYCDocumentStatusPending).
 		Order("created_at ASC").
 		Limit(limit).
 		Find(&documents).Error
 	return documents, err
 }
 
-func (r *kycDocumentRepositoryImpl) CountByMerchantAndStatus(ctx context.Context, merchantID string, status model.KYCDocumentStatus) (int64, error) {
+func (r *kycDocumentRepositoryImpl) CountByMerchantAndStatus(ctx context.Context, merchantID string, status merchantDomain.KYCDocumentStatus) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).
-		Model(&model.KYCDocument{}).
+		Model(&merchantDomain.KYCDocument{}).
 		Where("merchant_id = ? AND status = ?", merchantID, status).
 		Count(&count).Error
 	return count, err

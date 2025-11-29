@@ -9,14 +9,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/hxuan190/stable_payment_gateway/internal/api/dto"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	compliancerepository "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/repository"
 	complianceservice "github.com/hxuan190/stable_payment_gateway/internal/modules/compliance/service"
 	infrastructurerepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
 	ledgerrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 	merchantrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/repository"
 	merchantservice "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/service"
-	"github.com/hxuan190/stable_payment_gateway/internal/modules/payment/adapter/legacy"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
+	payoutDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/domain"
 	payoutrepository "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/repository"
 	payoutservice "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/service"
 	"github.com/shopspring/decimal"
@@ -29,7 +30,7 @@ type AdminHandler struct {
 	complianceService complianceservice.ComplianceService
 	merchantRepo      *merchantrepository.MerchantRepository
 	payoutRepo        *payoutrepository.PayoutRepository
-	paymentRepo       *legacy.PaymentRepositoryLegacyAdapter
+	paymentRepo       paymentDomain.PaymentRepository
 	balanceRepo       *ledgerrepository.BalanceRepository
 	travelRuleRepo    compliancerepository.TravelRuleRepository
 	kycDocumentRepo   infrastructurerepository.KYCDocumentRepository
@@ -48,7 +49,7 @@ func NewAdminHandler(
 	complianceService complianceservice.ComplianceService,
 	merchantRepo *merchantrepository.MerchantRepository,
 	payoutRepo *payoutrepository.PayoutRepository,
-	paymentRepo *legacy.PaymentRepositoryLegacyAdapter,
+	paymentRepo paymentDomain.PaymentRepository,
 	balanceRepo *ledgerrepository.BalanceRepository,
 	travelRuleRepo compliancerepository.TravelRuleRepository,
 	kycDocumentRepo infrastructurerepository.KYCDocumentRepository,
@@ -88,7 +89,7 @@ func (h *AdminHandler) ListMerchants(c *gin.Context) {
 		query.Limit = 20
 	}
 
-	var merchants []*model.Merchant
+	var merchants []*merchantDomain.Merchant
 	var err error
 
 	// Filter by KYC status if specified
@@ -157,7 +158,7 @@ func (h *AdminHandler) GetMerchant(c *gin.Context) {
 
 	// Note: Balance repository doesn't have GetByMerchantID method
 	// For now, pass nil for balance - this can be enhanced later
-	var balance *model.MerchantBalance
+	var balance *merchantDomain.MerchantBalance
 
 	// Build response
 	response := dto.APIResponse{
@@ -310,14 +311,14 @@ func (h *AdminHandler) ListPayouts(c *gin.Context) {
 		query.Limit = 20
 	}
 
-	var payouts []*model.Payout
+	var payouts []*payoutDomain.Payout
 	var err error
 
 	// Filter by status and merchant
 	if query.MerchantID != "" {
 		payouts, err = h.payoutRepo.ListByMerchant(query.MerchantID, query.Limit, query.Offset)
 	} else if query.Status != "" {
-		payouts, err = h.payoutRepo.ListByStatus(model.PayoutStatus(query.Status), query.Limit, query.Offset)
+		payouts, err = h.payoutRepo.ListByStatus(payoutDomain.PayoutStatus(query.Status), query.Limit, query.Offset)
 	} else {
 		// Get all payouts with pagination
 		payouts, err = h.payoutRepo.ListByStatus("", query.Limit, query.Offset)
@@ -612,9 +613,9 @@ func (h *AdminHandler) GetStats(c *gin.Context) {
 	pendingKYCMerchants := 0
 
 	for _, m := range allMerchants {
-		if m.KYCStatus == model.KYCStatusApproved {
+		if m.KYCStatus == merchantDomain.KYCStatusApproved {
 			activeMerchants++
-		} else if m.KYCStatus == model.KYCStatusPending {
+		} else if m.KYCStatus == merchantDomain.KYCStatusPending {
 			pendingKYCMerchants++
 		}
 	}
@@ -633,7 +634,7 @@ func (h *AdminHandler) GetStats(c *gin.Context) {
 
 	for _, p := range allPayouts {
 		totalPayoutsVolume = totalPayoutsVolume.Add(p.AmountVND)
-		if p.Status == model.PayoutStatusRequested || p.Status == model.PayoutStatusApproved {
+		if p.Status == payoutDomain.PayoutStatusRequested || p.Status == payoutDomain.PayoutStatusApproved {
 			pendingPayouts++
 		}
 	}
@@ -820,7 +821,7 @@ func (h *AdminHandler) GetPendingKYCDocuments(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// Get pending documents
-	documents, err := h.kycDocumentRepo.ListByStatus(ctx, model.KYCDocumentStatusPending)
+	documents, err := h.kycDocumentRepo.ListByStatus(ctx, merchantDomain.KYCDocumentStatusPending)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse(
 			"FAILED_TO_GET_DOCUMENTS",
@@ -881,7 +882,7 @@ func (h *AdminHandler) ApproveKYCDocument(c *gin.Context) {
 	}
 
 	// Check if already approved
-	if doc.Status == model.KYCDocumentStatusApproved {
+	if doc.Status == merchantDomain.KYCDocumentStatusApproved {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse(
 			"DOCUMENT_ALREADY_APPROVED",
 			"Document is already approved",
@@ -890,7 +891,7 @@ func (h *AdminHandler) ApproveKYCDocument(c *gin.Context) {
 	}
 
 	// Update document status
-	doc.Status = model.KYCDocumentStatusApproved
+	doc.Status = merchantDomain.KYCDocumentStatusApproved
 	doc.ReviewedBy.String = req.ApprovedBy
 	doc.ReviewedBy.Valid = true
 	doc.ReviewedAt.Time = time.Now()
@@ -960,7 +961,7 @@ func (h *AdminHandler) RejectKYCDocument(c *gin.Context) {
 	}
 
 	// Update document status
-	doc.Status = model.KYCDocumentStatusRejected
+	doc.Status = merchantDomain.KYCDocumentStatusRejected
 	doc.ReviewedBy.String = req.RejectedBy
 	doc.ReviewedBy.Valid = true
 	doc.ReviewedAt.Time = time.Now()

@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	reconciliationDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/reconciliation/domain"
 )
 
 var (
@@ -22,7 +22,7 @@ func NewReconciliationRepository(db *gorm.DB) *ReconciliationRepository {
 	return &ReconciliationRepository{db: db}
 }
 
-func (r *ReconciliationRepository) Create(log *model.ReconciliationLog) error {
+func (r *ReconciliationRepository) Create(log *reconciliationDomain.ReconciliationLog) error {
 	if log == nil {
 		return errors.New("reconciliation log cannot be nil")
 	}
@@ -35,8 +35,8 @@ func (r *ReconciliationRepository) Create(log *model.ReconciliationLog) error {
 	return r.db.Create(log).Error
 }
 
-func (r *ReconciliationRepository) GetByID(id string) (*model.ReconciliationLog, error) {
-	var log model.ReconciliationLog
+func (r *ReconciliationRepository) GetByID(id string) (*reconciliationDomain.ReconciliationLog, error) {
+	var log reconciliationDomain.ReconciliationLog
 	err := r.db.Where("id = ?", id).First(&log).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -47,8 +47,8 @@ func (r *ReconciliationRepository) GetByID(id string) (*model.ReconciliationLog,
 	return &log, nil
 }
 
-func (r *ReconciliationRepository) GetLatest() (*model.ReconciliationLog, error) {
-	var log model.ReconciliationLog
+func (r *ReconciliationRepository) GetLatest() (*reconciliationDomain.ReconciliationLog, error) {
+	var log reconciliationDomain.ReconciliationLog
 	err := r.db.Order("reconciled_at DESC").First(&log).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -59,11 +59,11 @@ func (r *ReconciliationRepository) GetLatest() (*model.ReconciliationLog, error)
 	return &log, nil
 }
 
-func (r *ReconciliationRepository) GetByDateRange(startDate, endDate time.Time, limit int) ([]*model.ReconciliationLog, error) {
+func (r *ReconciliationRepository) GetByDateRange(startDate, endDate time.Time, limit int) ([]*reconciliationDomain.ReconciliationLog, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	var logs []*model.ReconciliationLog
+	var logs []*reconciliationDomain.ReconciliationLog
 	err := r.db.
 		Where("reconciled_at >= ? AND reconciled_at <= ?", startDate, endDate).
 		Order("reconciled_at DESC").
@@ -72,11 +72,11 @@ func (r *ReconciliationRepository) GetByDateRange(startDate, endDate time.Time, 
 	return logs, err
 }
 
-func (r *ReconciliationRepository) GetByStatus(status string, limit int) ([]*model.ReconciliationLog, error) {
+func (r *ReconciliationRepository) GetByStatus(status string, limit int) ([]*reconciliationDomain.ReconciliationLog, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	var logs []*model.ReconciliationLog
+	var logs []*reconciliationDomain.ReconciliationLog
 	err := r.db.
 		Where("status = ?", status).
 		Order("reconciled_at DESC").
@@ -85,11 +85,11 @@ func (r *ReconciliationRepository) GetByStatus(status string, limit int) ([]*mod
 	return logs, err
 }
 
-func (r *ReconciliationRepository) GetDeficitAlerts(limit int) ([]*model.ReconciliationLog, error) {
+func (r *ReconciliationRepository) GetDeficitAlerts(limit int) ([]*reconciliationDomain.ReconciliationLog, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	var logs []*model.ReconciliationLog
+	var logs []*reconciliationDomain.ReconciliationLog
 	err := r.db.
 		Where("alert_triggered = ?", true).
 		Order("reconciled_at DESC").

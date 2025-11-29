@@ -12,7 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/audit/domain"
 	auditRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/audit/repository"
 	paymentdomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
@@ -346,14 +346,14 @@ func (s *amlServiceImpl) RecordScreeningResult(ctx context.Context, paymentID uu
 		"screened_at":    result.ScreenedAt,
 	}
 
-	auditLog := &model.AuditLog{
+	auditLog := &domain.AuditLog{
 		ID:             uuid.New().String(), // Fixed: convert UUID to string
-		ActorType:      model.ActorTypeSystem,
+		ActorType:      domain.ActorTypeSystem,
 		Action:         "aml_screening",
-		ActionCategory: model.ActionCategoryPayment,
+		ActionCategory: domain.ActionCategoryPayment,
 		ResourceType:   "payment",
 		ResourceID:     paymentID.String(), // Fixed: convert UUID to string
-		Status:         model.AuditStatusSuccess,
+		Status:         domain.AuditStatusSuccess,
 		Metadata:       metadata,
 		CreatedAt:      time.Now(),
 	}
@@ -387,7 +387,17 @@ func (s *amlServiceImpl) ValidateTransaction(ctx context.Context, paymentID uuid
 		Timestamp:   time.Now(),
 	}
 
-	ruleResults, err := s.ruleEngine.EvaluateVelocityRules(ctx, evalCtx)
+	var ruleResults []*RuleEvaluationResult
+	var err error
+	if s.ruleEngine != nil {
+		ruleResults, err = s.ruleEngine.EvaluateVelocityRules(ctx, evalCtx)
+	} else {
+		// If rule engine is not configured, skip velocity checks
+		s.logger.Warn("Rule engine not configured, skipping velocity checks", map[string]interface{}{
+			"payment_id": paymentID,
+		})
+	}
+
 	if err != nil {
 		s.logger.Error("Failed to evaluate velocity rules", err, map[string]interface{}{
 			"payment_id":   paymentID,

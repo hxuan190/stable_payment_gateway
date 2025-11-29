@@ -3,7 +3,7 @@ package dto
 import (
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	payoutDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payout/domain"
 	"github.com/shopspring/decimal"
 )
 
@@ -99,8 +99,8 @@ type PayoutListItem struct {
 	CompletionDate    *time.Time      `json:"completion_date,omitempty"`
 }
 
-// PayoutToResponse converts a model.Payout to GetPayoutResponse
-func PayoutToResponse(payout *model.Payout) GetPayoutResponse {
+// PayoutToResponse converts a payoutDomain.Payout to GetPayoutResponse
+func PayoutToResponse(payout *payoutDomain.Payout) GetPayoutResponse {
 	response := GetPayoutResponse{
 		PayoutID:          payout.ID,
 		MerchantID:        payout.MerchantID,
@@ -166,8 +166,8 @@ func PayoutToResponse(payout *model.Payout) GetPayoutResponse {
 	return response
 }
 
-// PayoutToListItem converts a model.Payout to PayoutListItem
-func PayoutToListItem(payout *model.Payout) PayoutListItem {
+// PayoutToListItem converts a payoutDomain.Payout to PayoutListItem
+func PayoutToListItem(payout *payoutDomain.Payout) PayoutListItem {
 	item := PayoutListItem{
 		PayoutID:          payout.ID,
 		AmountVND:         payout.AmountVND,

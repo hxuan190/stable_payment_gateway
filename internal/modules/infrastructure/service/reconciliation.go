@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	infrastructureRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
 	ledgerRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
 	ledgerService "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/service"
+	reconciliationDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/reconciliation/domain"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -77,7 +78,7 @@ func (s *ReconciliationService) PerformDailyReconciliation(ctx context.Context) 
 	startTime := time.Now()
 
 	// Create initial reconciliation log
-	reconLog := &model.ReconciliationLog{
+	reconLog := &reconciliationDomain.ReconciliationLog{
 		ReconciledAt: startTime,
 		Status:       string(ReconciliationStatusInProgress),
 	}
@@ -203,8 +204,8 @@ func (s *ReconciliationService) calculateTotalLiabilities(ctx context.Context) (
 
 // calculateTotalAssets sums all assets the platform holds
 // Assets = Crypto Holdings (VND) + VND Pool + Fee Revenue + OTC Spread - Expenses
-func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decimal.Decimal, map[string]string, error) {
-	breakdown := make(map[string]string)
+func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decimal.Decimal, database.JSONBMap, error) {
+	breakdown := make(database.JSONBMap)
 	totalAssets := decimal.Zero
 
 	// 1. Get crypto holdings from ledger (crypto_pool account)
@@ -294,16 +295,16 @@ func (s *ReconciliationService) calculateTotalAssets(ctx context.Context) (decim
 }
 
 // GetLatestReconciliation retrieves the most recent reconciliation result
-func (s *ReconciliationService) GetLatestReconciliation(ctx context.Context) (*model.ReconciliationLog, error) {
+func (s *ReconciliationService) GetLatestReconciliation(ctx context.Context) (*reconciliationDomain.ReconciliationLog, error) {
 	return s.reconciliationRepo.GetLatest()
 }
 
 // GetReconciliationHistory retrieves reconciliation history for a date range
-func (s *ReconciliationService) GetReconciliationHistory(ctx context.Context, startDate, endDate time.Time, limit int) ([]*model.ReconciliationLog, error) {
+func (s *ReconciliationService) GetReconciliationHistory(ctx context.Context, startDate, endDate time.Time, limit int) ([]*reconciliationDomain.ReconciliationLog, error) {
 	return s.reconciliationRepo.GetByDateRange(startDate, endDate, limit)
 }
 
 // GetDeficitAlerts retrieves all reconciliation instances where the system was insolvent
-func (s *ReconciliationService) GetDeficitAlerts(ctx context.Context, limit int) ([]*model.ReconciliationLog, error) {
+func (s *ReconciliationService) GetDeficitAlerts(ctx context.Context, limit int) ([]*reconciliationDomain.ReconciliationLog, error) {
 	return s.reconciliationRepo.GetByStatus(string(ReconciliationStatusDeficit), limit)
 }

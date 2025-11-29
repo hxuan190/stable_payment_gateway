@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	"github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/domain"
 	"gorm.io/gorm"
 )
 
@@ -29,7 +29,7 @@ func NewArchivedRecordRepository(db *gorm.DB) *ArchivedRecordRepository {
 }
 
 // Create inserts a new archived record
-func (r *ArchivedRecordRepository) Create(record *model.ArchivedRecord) error {
+func (r *ArchivedRecordRepository) Create(record *domain.ArchivedRecord) error {
 	if record == nil {
 		return errors.New("archived record cannot be nil")
 	}
@@ -47,12 +47,12 @@ func (r *ArchivedRecordRepository) Create(record *model.ArchivedRecord) error {
 }
 
 // GetByID retrieves an archived record by ID
-func (r *ArchivedRecordRepository) GetByID(id uuid.UUID) (*model.ArchivedRecord, error) {
+func (r *ArchivedRecordRepository) GetByID(id uuid.UUID) (*domain.ArchivedRecord, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("invalid archived record ID")
 	}
 
-	record := &model.ArchivedRecord{}
+	record := &domain.ArchivedRecord{}
 	if err := r.db.Where("id = ?", id).First(record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrArchivedRecordNotFound
@@ -64,7 +64,7 @@ func (r *ArchivedRecordRepository) GetByID(id uuid.UUID) (*model.ArchivedRecord,
 }
 
 // GetByOriginalID retrieves an archived record by original ID and table name
-func (r *ArchivedRecordRepository) GetByOriginalID(tableName string, originalID uuid.UUID) (*model.ArchivedRecord, error) {
+func (r *ArchivedRecordRepository) GetByOriginalID(tableName string, originalID uuid.UUID) (*domain.ArchivedRecord, error) {
 	if tableName == "" {
 		return nil, errors.New("table name cannot be empty")
 	}
@@ -72,7 +72,7 @@ func (r *ArchivedRecordRepository) GetByOriginalID(tableName string, originalID 
 		return nil, errors.New("original ID cannot be empty")
 	}
 
-	record := &model.ArchivedRecord{}
+	record := &domain.ArchivedRecord{}
 	if err := r.db.Where("table_name = ? AND original_id = ?", tableName, originalID).First(record).Error; err != nil {
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -87,7 +87,7 @@ func (r *ArchivedRecordRepository) GetByOriginalID(tableName string, originalID 
 }
 
 // ListByTableName retrieves archived records by table name with pagination
-func (r *ArchivedRecordRepository) ListByTableName(tableName string, limit, offset int) ([]*model.ArchivedRecord, error) {
+func (r *ArchivedRecordRepository) ListByTableName(tableName string, limit, offset int) ([]*domain.ArchivedRecord, error) {
 	if tableName == "" {
 		return nil, errors.New("table name cannot be empty")
 	}
@@ -99,7 +99,7 @@ func (r *ArchivedRecordRepository) ListByTableName(tableName string, limit, offs
 		offset = 0
 	}
 
-	records := make([]*model.ArchivedRecord, 0)
+	records := make([]*domain.ArchivedRecord, 0)
 	if err := r.db.Where("table_name = ?", tableName).Order("archived_at DESC").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (r *ArchivedRecordRepository) ListByTableName(tableName string, limit, offs
 }
 
 // Update updates an existing archived record
-func (r *ArchivedRecordRepository) Update(record *model.ArchivedRecord) error {
+func (r *ArchivedRecordRepository) Update(record *domain.ArchivedRecord) error {
 	if record == nil {
 		return errors.New("archived record cannot be nil")
 	}
@@ -127,7 +127,7 @@ func (r *ArchivedRecordRepository) Update(record *model.ArchivedRecord) error {
 }
 
 // InitiateRestore initiates a restore operation for an archived record
-func (r *ArchivedRecordRepository) InitiateRestore(id uuid.UUID, tier model.RestoreTier, initiatedBy string) error {
+func (r *ArchivedRecordRepository) InitiateRestore(id uuid.UUID, tier domain.RestoreTier, initiatedBy string) error {
 	if id == uuid.Nil {
 		return errors.New("invalid archived record ID")
 	}
@@ -168,7 +168,7 @@ func (r *ArchivedRecordRepository) MarkAsRestored(id uuid.UUID) error {
 // Count returns the total number of archived records
 func (r *ArchivedRecordRepository) Count() (int64, error) {
 	var count int64
-	if err := r.db.Model(&model.ArchivedRecord{}).Count(&count).Error; err != nil {
+	if err := r.db.Model(&domain.ArchivedRecord{}).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count archived records: %w", err)
 	}
 	return count, nil

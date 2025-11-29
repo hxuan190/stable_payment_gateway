@@ -3,7 +3,7 @@ package dto
 import (
 	"time"
 
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 )
 
 // UploadKYCDocumentRequest represents the request to upload a KYC document
@@ -45,8 +45,8 @@ type KYCDocumentItem struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
-// KYCDocumentToResponse converts a model.KYCDocument to UploadKYCDocumentResponse
-func KYCDocumentToResponse(doc *model.KYCDocument) UploadKYCDocumentResponse {
+// KYCDocumentToResponse converts a merchantDomain.KYCDocument to UploadKYCDocumentResponse
+func KYCDocumentToResponse(doc *merchantDomain.KYCDocument) UploadKYCDocumentResponse {
 	// Handle nullable FileSizeBytes
 	var fileSizeKB float64
 	if doc.FileSizeBytes.Valid {
@@ -60,8 +60,8 @@ func KYCDocumentToResponse(doc *model.KYCDocument) UploadKYCDocumentResponse {
 	}
 
 	return UploadKYCDocumentResponse{
-		DocumentID:   doc.ID,              // ID is already a string
-		MerchantID:   doc.MerchantID,      // MerchantID is already a string
+		DocumentID:   doc.ID,         // ID is already a string
+		MerchantID:   doc.MerchantID, // MerchantID is already a string
 		DocumentType: string(doc.DocumentType),
 		FileURL:      doc.FileURL,
 		FileSizeKB:   fileSizeKB,
@@ -71,8 +71,8 @@ func KYCDocumentToResponse(doc *model.KYCDocument) UploadKYCDocumentResponse {
 	}
 }
 
-// KYCDocumentToListItem converts a model.KYCDocument to KYCDocumentItem
-func KYCDocumentToListItem(doc *model.KYCDocument) KYCDocumentItem {
+// KYCDocumentToListItem converts a merchantDomain.KYCDocument to KYCDocumentItem
+func KYCDocumentToListItem(doc *merchantDomain.KYCDocument) KYCDocumentItem {
 	// Handle nullable FileSizeBytes
 	var fileSizeKB float64
 	if doc.FileSizeBytes.Valid {
@@ -86,7 +86,7 @@ func KYCDocumentToListItem(doc *model.KYCDocument) KYCDocumentItem {
 	}
 
 	item := KYCDocumentItem{
-		DocumentID:   doc.ID,              // ID is already a string
+		DocumentID:   doc.ID, // ID is already a string
 		DocumentType: string(doc.DocumentType),
 		FileURL:      doc.FileURL,
 		FileSizeKB:   fileSizeKB,
@@ -98,7 +98,7 @@ func KYCDocumentToListItem(doc *model.KYCDocument) KYCDocumentItem {
 
 	// Handle optional fields
 	if doc.ReviewedBy.Valid {
-		reviewedBy := doc.ReviewedBy.String  // ReviewedBy is sql.NullString, not UUID
+		reviewedBy := doc.ReviewedBy.String // ReviewedBy is sql.NullString, not UUID
 		item.ReviewedBy = &reviewedBy
 	}
 	if doc.ReviewedAt.Valid {

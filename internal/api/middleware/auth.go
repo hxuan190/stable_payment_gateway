@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	merchantDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/merchant/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/cache"
 	"github.com/hxuan190/stable_payment_gateway/internal/pkg/logger"
 	"github.com/sirupsen/logrus"
@@ -24,7 +24,7 @@ const (
 // MerchantRepository defines the interface for merchant data access
 // This allows for easier testing and mocking
 type MerchantRepository interface {
-	GetByAPIKey(apiKey string) (*model.Merchant, error)
+	GetByAPIKey(apiKey string) (*merchantDomain.Merchant, error)
 }
 
 // APIKeyAuthConfig holds configuration for API key authentication
@@ -132,9 +132,9 @@ func APIKeyAuth(config APIKeyAuthConfig) gin.HandlerFunc {
 			// Provide specific error message based on status
 			var message string
 			switch {
-			case merchant.KYCStatus != model.KYCStatusApproved:
+			case merchant.KYCStatus != merchantDomain.KYCStatusApproved:
 				message = fmt.Sprintf("Merchant KYC not approved (status: %s)", merchant.KYCStatus)
-			case merchant.Status != model.MerchantStatusActive:
+			case merchant.Status != merchantDomain.MerchantStatusActive:
 				message = fmt.Sprintf("Merchant account not active (status: %s)", merchant.Status)
 			case !merchant.APIKey.Valid:
 				message = "API key not configured"
@@ -171,7 +171,7 @@ func APIKeyAuth(config APIKeyAuthConfig) gin.HandlerFunc {
 }
 
 // getMerchantFromCacheOrDB tries to get merchant from cache first, falls back to database
-func getMerchantFromCacheOrDB(ctx context.Context, apiKey string, config APIKeyAuthConfig) (*model.Merchant, error) {
+func getMerchantFromCacheOrDB(ctx context.Context, apiKey string, config APIKeyAuthConfig) (*merchantDomain.Merchant, error) {
 	cacheKey := fmt.Sprintf("merchant:apikey:%s", apiKey)
 
 	// Try cache first if available
@@ -179,7 +179,7 @@ func getMerchantFromCacheOrDB(ctx context.Context, apiKey string, config APIKeyA
 		cachedData, err := config.Cache.Get(ctx, cacheKey)
 		if err == nil && cachedData != "" {
 			// Cache hit - unmarshal merchant data
-			var merchant model.Merchant
+			var merchant merchantDomain.Merchant
 			if err := json.Unmarshal([]byte(cachedData), &merchant); err == nil {
 				logger.WithContext(ctx).WithFields(logrus.Fields{
 					"merchant_id": merchant.ID,
@@ -244,13 +244,13 @@ func maskAPIKey(apiKey string) string {
 
 // GetMerchantFromContext retrieves the merchant from the Gin context
 // This is a helper function for handlers to get the authenticated merchant
-func GetMerchantFromContext(c *gin.Context) (*model.Merchant, error) {
+func GetMerchantFromContext(c *gin.Context) (*merchantDomain.Merchant, error) {
 	merchantValue, exists := c.Get(MerchantContextKey)
 	if !exists {
 		return nil, fmt.Errorf("merchant not found in context")
 	}
 
-	merchant, ok := merchantValue.(*model.Merchant)
+	merchant, ok := merchantValue.(*merchantDomain.Merchant)
 	if !ok {
 		return nil, fmt.Errorf("invalid merchant type in context")
 	}

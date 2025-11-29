@@ -28,7 +28,7 @@ type Config struct {
 func NewModule(cfg Config) (*Module, error) {
 	repo := repository.NewMerchantRepository(cfg.GormDB)
 
-	svc := service.NewMerchantService(*repo, cfg.GormDB)
+	svc := service.NewMerchantService(repo, cfg.GormDB)
 
 	cfg.Logger.Info("Merchant module initialized")
 

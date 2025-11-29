@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/hxuan190/stable_payment_gateway/internal/config"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
 	walletBalanceRepository "github.com/hxuan190/stable_payment_gateway/internal/modules/infrastructure/repository"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/notification/service"
+	paymentDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/payment/domain"
+	walletDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/wallet/domain"
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 )
@@ -27,7 +28,7 @@ type WalletMonitorConfig struct {
 	AlertEmails []string
 
 	// Network configuration
-	Network model.Network
+	Network walletDomain.Network
 }
 
 // DefaultWalletMonitorConfig returns default monitoring configuration
@@ -37,7 +38,7 @@ func DefaultWalletMonitorConfig() WalletMonitorConfig {
 		MinThresholdUSD: decimal.NewFromInt(1000),  // $1,000 minimum
 		MaxThresholdUSD: decimal.NewFromInt(10000), // $10,000 maximum
 		AlertEmails:     []string{},
-		Network:         model.NetworkDevnet,
+		Network:         walletDomain.NetworkDevnet,
 	}
 }
 
@@ -166,8 +167,8 @@ func (m *WalletMonitor) checkBalance(ctx context.Context) error {
 	isAboveMax := totalUSDValue.GreaterThan(m.config.MaxThresholdUSD)
 
 	// Create snapshot
-	snapshot := &model.WalletBalanceSnapshot{
-		Chain:               model.ChainSolana,
+	snapshot := &walletDomain.WalletBalanceSnapshot{
+		Chain:               paymentDomain.ChainSolana,
 		Network:             m.config.Network,
 		WalletAddress:       m.wallet.GetAddress(),
 		NativeBalance:       solBalance,
@@ -222,7 +223,7 @@ func (m *WalletMonitor) checkBalance(ctx context.Context) error {
 }
 
 // sendAlert sends alert notifications when balance thresholds are breached
-func (m *WalletMonitor) sendAlert(ctx context.Context, snapshot *model.WalletBalanceSnapshot) error {
+func (m *WalletMonitor) sendAlert(ctx context.Context, snapshot *walletDomain.WalletBalanceSnapshot) error {
 	alertMessage := snapshot.GetAlertMessage()
 	alertDetails := snapshot.GetAlertDetails()
 
@@ -287,11 +288,11 @@ func (m *WalletMonitor) CheckBalance(ctx context.Context) (decimal.Decimal, erro
 }
 
 // GetLatestSnapshot retrieves the most recent balance snapshot from the database
-func (m *WalletMonitor) GetLatestSnapshot(ctx context.Context) (*model.WalletBalanceSnapshot, error) {
-	return m.balanceRepo.GetLatest(ctx, model.ChainSolana, m.wallet.GetAddress())
+func (m *WalletMonitor) GetLatestSnapshot(ctx context.Context) (*walletDomain.WalletBalanceSnapshot, error) {
+	return m.balanceRepo.GetLatest(ctx, paymentDomain.ChainSolana, m.wallet.GetAddress())
 }
 
 // GetBalanceHistory retrieves historical balance snapshots
-func (m *WalletMonitor) GetBalanceHistory(ctx context.Context, startTime, endTime time.Time, limit int) ([]*model.WalletBalanceSnapshot, error) {
-	return m.balanceRepo.GetHistory(ctx, model.ChainSolana, m.wallet.GetAddress(), startTime, endTime, limit)
+func (m *WalletMonitor) GetBalanceHistory(ctx context.Context, startTime, endTime time.Time, limit int) ([]*walletDomain.WalletBalanceSnapshot, error) {
+	return m.balanceRepo.GetHistory(ctx, paymentDomain.ChainSolana, m.wallet.GetAddress(), startTime, endTime, limit)
 }

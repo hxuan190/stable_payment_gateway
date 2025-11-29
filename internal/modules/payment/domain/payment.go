@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/shopspring/decimal"
 )
 
@@ -75,7 +76,7 @@ type Payment struct {
 	FailureReason sql.NullString `json:"failure_reason,omitempty" db:"failure_reason"`
 
 	// Metadata
-	Metadata JSONBMap `json:"metadata,omitempty" db:"metadata"`
+	Metadata database.JSONBMap `json:"metadata,omitempty" db:"metadata"`
 
 	// Timestamps
 	CreatedAt time.Time    `json:"created_at" db:"created_at"`

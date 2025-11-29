@@ -6,8 +6,9 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	ledgerDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/domain"
 	"github.com/hxuan190/stable_payment_gateway/internal/modules/ledger/repository"
+	"github.com/hxuan190/stable_payment_gateway/internal/pkg/database"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -98,20 +99,20 @@ func (s *LedgerService) RecordPaymentReceived(
 	transactionGroup := uuid.New().String()
 
 	// Create ledger entries
-	entries := []*model.LedgerEntry{
+	entries := []*ledgerDomain.LedgerEntry{
 		// Debit: Increase crypto pool
 		{
 			DebitAccount:     AccountCryptoPool,
 			CreditAccount:    AccountCryptoPool, // Placeholder, will be replaced
 			Amount:           amountCrypto,
 			Currency:         cryptoCurrency,
-			ReferenceType:    model.ReferenceTypePayment,
+			ReferenceType:    ledgerDomain.ReferenceTypePayment,
 			ReferenceID:      paymentID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payment %s received: %s %s", paymentID, amountCrypto.String(), cryptoCurrency),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeDebit,
-			Metadata:         model.JSONBMap{"crypto_amount": amountCrypto.String(), "crypto_currency": cryptoCurrency},
+			EntryType:        ledgerDomain.EntryTypeDebit,
+			Metadata:         database.JSONBMap{"crypto_amount": amountCrypto.String(), "crypto_currency": cryptoCurrency},
 		},
 		// Credit: This is the corresponding credit (crypto pool from user)
 		{
@@ -119,13 +120,13 @@ func (s *LedgerService) RecordPaymentReceived(
 			CreditAccount:    fmt.Sprintf("user_payment:%s", paymentID),
 			Amount:           amountCrypto,
 			Currency:         cryptoCurrency,
-			ReferenceType:    model.ReferenceTypePayment,
+			ReferenceType:    ledgerDomain.ReferenceTypePayment,
 			ReferenceID:      paymentID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("User payment %s: %s %s", paymentID, amountCrypto.String(), cryptoCurrency),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"crypto_amount": amountCrypto.String(), "crypto_currency": cryptoCurrency},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"crypto_amount": amountCrypto.String(), "crypto_currency": cryptoCurrency},
 		},
 	}
 
@@ -144,7 +145,7 @@ func (s *LedgerService) RecordPaymentReceived(
 	}
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -178,20 +179,20 @@ func (s *LedgerService) RecordPaymentConfirmed(
 	transactionGroup := uuid.New().String()
 
 	// Create ledger entries for VND movement
-	entries := []*model.LedgerEntry{
+	entries := []*ledgerDomain.LedgerEntry{
 		// Debit: Decrease merchant pending balance
 		{
 			DebitAccount:     s.getMerchantPendingAccount(merchantID),
 			CreditAccount:    s.getMerchantPendingAccount(merchantID), // Placeholder
 			Amount:           amountVND,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypePayment,
+			ReferenceType:    ledgerDomain.ReferenceTypePayment,
 			ReferenceID:      paymentID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payment %s confirmed: converting pending to available", paymentID),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeDebit,
-			Metadata:         model.JSONBMap{"gross_amount": amountVND.String(), "fee": feeVND.String()},
+			EntryType:        ledgerDomain.EntryTypeDebit,
+			Metadata:         database.JSONBMap{"gross_amount": amountVND.String(), "fee": feeVND.String()},
 		},
 		// Credit: Increase merchant available balance (net of fee)
 		{
@@ -199,13 +200,13 @@ func (s *LedgerService) RecordPaymentConfirmed(
 			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
 			Amount:           netAmount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypePayment,
+			ReferenceType:    ledgerDomain.ReferenceTypePayment,
 			ReferenceID:      paymentID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payment %s: available balance after fee", paymentID),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"net_amount": netAmount.String(), "fee_rate": "0.01"},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"net_amount": netAmount.String(), "fee_rate": "0.01"},
 		},
 		// Credit: Record fee revenue
 		{
@@ -213,13 +214,13 @@ func (s *LedgerService) RecordPaymentConfirmed(
 			CreditAccount:    AccountFeeRevenue,
 			Amount:           feeVND,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypeFee,
+			ReferenceType:    ledgerDomain.ReferenceTypeFee,
 			ReferenceID:      paymentID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Transaction fee for payment %s", paymentID),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"fee_type": "transaction_fee", "fee_rate": "0.01"},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"fee_type": "transaction_fee", "fee_rate": "0.01"},
 		},
 	}
 
@@ -238,7 +239,7 @@ func (s *LedgerService) RecordPaymentConfirmed(
 	}
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -271,7 +272,7 @@ func (s *LedgerService) RecordPayoutRequested(
 	}
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -302,20 +303,20 @@ func (s *LedgerService) RecordPayoutCompleted(
 	transactionGroup := uuid.New().String()
 
 	// Create ledger entries
-	entries := []*model.LedgerEntry{
+	entries := []*ledgerDomain.LedgerEntry{
 		// Debit: Decrease merchant available balance
 		{
 			DebitAccount:     s.getMerchantAvailableAccount(merchantID),
 			CreditAccount:    s.getMerchantAvailableAccount(merchantID), // Placeholder
 			Amount:           totalDeduction,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceType:    ledgerDomain.ReferenceTypePayout,
 			ReferenceID:      payoutID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payout %s: deducting %s VND (amount: %s, fee: %s)", payoutID, totalDeduction.String(), amount.String(), feeVND.String()),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeDebit,
-			Metadata:         model.JSONBMap{"payout_amount": amount.String(), "payout_fee": feeVND.String()},
+			EntryType:        ledgerDomain.EntryTypeDebit,
+			Metadata:         database.JSONBMap{"payout_amount": amount.String(), "payout_fee": feeVND.String()},
 		},
 		// Credit: Decrease VND pool (money going out to merchant's bank)
 		{
@@ -323,13 +324,13 @@ func (s *LedgerService) RecordPayoutCompleted(
 			CreditAccount:    AccountVNDPool,
 			Amount:           amount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceType:    ledgerDomain.ReferenceTypePayout,
 			ReferenceID:      payoutID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payout %s: transferred to merchant bank", payoutID),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"payout_amount": amount.String()},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"payout_amount": amount.String()},
 		},
 		// Credit: Record payout fee revenue
 		{
@@ -337,13 +338,13 @@ func (s *LedgerService) RecordPayoutCompleted(
 			CreditAccount:    AccountFeeRevenue,
 			Amount:           feeVND,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypeFee,
+			ReferenceType:    ledgerDomain.ReferenceTypeFee,
 			ReferenceID:      payoutID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payout fee for payout %s", payoutID),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"fee_type": "payout_fee"},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"fee_type": "payout_fee"},
 		},
 	}
 
@@ -362,7 +363,7 @@ func (s *LedgerService) RecordPayoutCompleted(
 	}
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -390,7 +391,7 @@ func (s *LedgerService) RecordPayoutCancelled(
 	}
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -411,20 +412,20 @@ func (s *LedgerService) RecordPayoutRejected(
 	transactionGroup := uuid.New().String()
 
 	// Create ledger entries documenting the rejection
-	entries := []*model.LedgerEntry{
+	entries := []*ledgerDomain.LedgerEntry{
 		// Debit: Merchant reserved balance (unreserve)
 		{
 			DebitAccount:     s.getMerchantReservedAccount(merchantID),
 			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
 			Amount:           amount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceType:    ledgerDomain.ReferenceTypePayout,
 			ReferenceID:      payoutID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payout %s rejected: releasing %s VND from reserve", payoutID, amount.String()),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeDebit,
-			Metadata:         model.JSONBMap{"payout_status": "rejected"},
+			EntryType:        ledgerDomain.EntryTypeDebit,
+			Metadata:         database.JSONBMap{"payout_status": "rejected"},
 		},
 		// Credit: Merchant available balance (funds returned)
 		{
@@ -432,13 +433,13 @@ func (s *LedgerService) RecordPayoutRejected(
 			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
 			Amount:           amount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceType:    ledgerDomain.ReferenceTypePayout,
 			ReferenceID:      payoutID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payout %s rejected: funds returned to available balance", payoutID),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"payout_status": "rejected"},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"payout_status": "rejected"},
 		},
 	}
 
@@ -465,20 +466,20 @@ func (s *LedgerService) RecordPayoutFailed(
 	transactionGroup := uuid.New().String()
 
 	// Create ledger entries documenting the failure
-	entries := []*model.LedgerEntry{
+	entries := []*ledgerDomain.LedgerEntry{
 		// Debit: Merchant reserved balance (unreserve)
 		{
 			DebitAccount:     s.getMerchantReservedAccount(merchantID),
 			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
 			Amount:           amount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceType:    ledgerDomain.ReferenceTypePayout,
 			ReferenceID:      payoutID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payout %s failed: releasing %s VND from reserve - %s", payoutID, amount.String(), reason),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeDebit,
-			Metadata:         model.JSONBMap{"payout_status": "failed", "failure_reason": reason},
+			EntryType:        ledgerDomain.EntryTypeDebit,
+			Metadata:         database.JSONBMap{"payout_status": "failed", "failure_reason": reason},
 		},
 		// Credit: Merchant available balance (funds returned)
 		{
@@ -486,13 +487,13 @@ func (s *LedgerService) RecordPayoutFailed(
 			CreditAccount:    s.getMerchantAvailableAccount(merchantID),
 			Amount:           amount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypePayout,
+			ReferenceType:    ledgerDomain.ReferenceTypePayout,
 			ReferenceID:      payoutID,
 			MerchantID:       sql.NullString{String: merchantID, Valid: true},
 			Description:      fmt.Sprintf("Payout %s failed: funds returned to available balance", payoutID),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"payout_status": "failed", "failure_reason": reason},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"payout_status": "failed", "failure_reason": reason},
 		},
 	}
 
@@ -540,19 +541,19 @@ func (s *LedgerService) RecordOTCConversion(
 	transactionGroupVND := uuid.New().String()
 
 	// Create ledger entries for crypto decrease
-	cryptoEntries := []*model.LedgerEntry{
+	cryptoEntries := []*ledgerDomain.LedgerEntry{
 		// Debit: OTC partner receives crypto
 		{
 			DebitAccount:     "otc_partner",
 			CreditAccount:    AccountCryptoPool,
 			Amount:           cryptoAmount,
 			Currency:         cryptoCurrency,
-			ReferenceType:    model.ReferenceTypeOTCConversion,
+			ReferenceType:    ledgerDomain.ReferenceTypeOTCConversion,
 			ReferenceID:      referenceID,
 			Description:      fmt.Sprintf("OTC conversion %s: sent %s %s to OTC partner", referenceID, cryptoAmount.String(), cryptoCurrency),
 			TransactionGroup: transactionGroupCrypto,
-			EntryType:        model.EntryTypeDebit,
-			Metadata:         model.JSONBMap{"crypto_amount": cryptoAmount.String(), "crypto_currency": cryptoCurrency},
+			EntryType:        ledgerDomain.EntryTypeDebit,
+			Metadata:         database.JSONBMap{"crypto_amount": cryptoAmount.String(), "crypto_currency": cryptoCurrency},
 		},
 		// Credit: Decrease our crypto pool
 		{
@@ -560,29 +561,29 @@ func (s *LedgerService) RecordOTCConversion(
 			CreditAccount:    AccountCryptoPool,
 			Amount:           cryptoAmount,
 			Currency:         cryptoCurrency,
-			ReferenceType:    model.ReferenceTypeOTCConversion,
+			ReferenceType:    ledgerDomain.ReferenceTypeOTCConversion,
 			ReferenceID:      referenceID,
 			Description:      fmt.Sprintf("OTC conversion %s: crypto pool decrease", referenceID),
 			TransactionGroup: transactionGroupCrypto,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"crypto_amount": cryptoAmount.String(), "crypto_currency": cryptoCurrency},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"crypto_amount": cryptoAmount.String(), "crypto_currency": cryptoCurrency},
 		},
 	}
 
 	// Create ledger entries for VND increase
-	vndEntries := []*model.LedgerEntry{
+	vndEntries := []*ledgerDomain.LedgerEntry{
 		// Debit: Increase our VND pool
 		{
 			DebitAccount:     AccountVNDPool,
 			CreditAccount:    "otc_partner",
 			Amount:           vndAmount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypeOTCConversion,
+			ReferenceType:    ledgerDomain.ReferenceTypeOTCConversion,
 			ReferenceID:      referenceID,
 			Description:      fmt.Sprintf("OTC conversion %s: received %s VND from OTC partner", referenceID, vndAmount.String()),
 			TransactionGroup: transactionGroupVND,
-			EntryType:        model.EntryTypeDebit,
-			Metadata:         model.JSONBMap{"vnd_amount": vndAmount.String(), "spread": spreadAmount.String()},
+			EntryType:        ledgerDomain.EntryTypeDebit,
+			Metadata:         database.JSONBMap{"vnd_amount": vndAmount.String(), "spread": spreadAmount.String()},
 		},
 		// Credit: OTC partner provides VND
 		{
@@ -590,12 +591,12 @@ func (s *LedgerService) RecordOTCConversion(
 			CreditAccount:    "otc_partner",
 			Amount:           vndAmount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypeOTCConversion,
+			ReferenceType:    ledgerDomain.ReferenceTypeOTCConversion,
 			ReferenceID:      referenceID,
 			Description:      fmt.Sprintf("OTC conversion %s: VND from OTC partner", referenceID),
 			TransactionGroup: transactionGroupVND,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"vnd_amount": vndAmount.String(), "spread": spreadAmount.String()},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"vnd_amount": vndAmount.String(), "spread": spreadAmount.String()},
 		},
 	}
 
@@ -619,7 +620,7 @@ func (s *LedgerService) RecordOTCConversion(
 }
 
 // GetMerchantLedgerEntries retrieves ledger entries for a merchant
-func (s *LedgerService) GetMerchantLedgerEntries(merchantID string, limit, offset int) ([]*model.LedgerEntry, error) {
+func (s *LedgerService) GetMerchantLedgerEntries(merchantID string, limit, offset int) ([]*ledgerDomain.LedgerEntry, error) {
 	if merchantID == "" {
 		return nil, ErrLedgerInvalidMerchantID
 	}
@@ -628,7 +629,7 @@ func (s *LedgerService) GetMerchantLedgerEntries(merchantID string, limit, offse
 }
 
 // GetTransactionDetails retrieves all ledger entries for a specific transaction
-func (s *LedgerService) GetTransactionDetails(transactionGroup string) ([]*model.LedgerEntry, error) {
+func (s *LedgerService) GetTransactionDetails(transactionGroup string) ([]*ledgerDomain.LedgerEntry, error) {
 	if transactionGroup == "" {
 		return nil, errors.New("transaction group cannot be empty")
 	}
@@ -680,37 +681,37 @@ func (s *LedgerService) validateBasicInputs(referenceID, merchantID string, amou
 	return nil
 }
 
-func (s *LedgerService) createSpreadEntry(referenceID string, spreadAmount decimal.Decimal, transactionGroup string) []*model.LedgerEntry {
-	var entries []*model.LedgerEntry
+func (s *LedgerService) createSpreadEntry(referenceID string, spreadAmount decimal.Decimal, transactionGroup string) []*ledgerDomain.LedgerEntry {
+	var entries []*ledgerDomain.LedgerEntry
 
 	if spreadAmount.GreaterThan(decimal.Zero) {
 		// Positive spread = revenue (we got more VND than expected)
-		entries = append(entries, &model.LedgerEntry{
+		entries = append(entries, &ledgerDomain.LedgerEntry{
 			DebitAccount:     AccountVNDPool,
 			CreditAccount:    AccountOTCSpread,
 			Amount:           spreadAmount,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypeOTCConversion,
+			ReferenceType:    ledgerDomain.ReferenceTypeOTCConversion,
 			ReferenceID:      referenceID,
 			Description:      fmt.Sprintf("OTC spread revenue: %s VND", spreadAmount.String()),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeCredit,
-			Metadata:         model.JSONBMap{"spread_type": "revenue"},
+			EntryType:        ledgerDomain.EntryTypeCredit,
+			Metadata:         database.JSONBMap{"spread_type": "revenue"},
 		})
 	} else if spreadAmount.LessThan(decimal.Zero) {
 		// Negative spread = loss (we got less VND than expected)
 		absSpread := spreadAmount.Abs()
-		entries = append(entries, &model.LedgerEntry{
+		entries = append(entries, &ledgerDomain.LedgerEntry{
 			DebitAccount:     AccountOTCExpense,
 			CreditAccount:    AccountVNDPool,
 			Amount:           absSpread,
 			Currency:         "VND",
-			ReferenceType:    model.ReferenceTypeOTCConversion,
+			ReferenceType:    ledgerDomain.ReferenceTypeOTCConversion,
 			ReferenceID:      referenceID,
 			Description:      fmt.Sprintf("OTC spread loss: %s VND", absSpread.String()),
 			TransactionGroup: transactionGroup,
-			EntryType:        model.EntryTypeDebit,
-			Metadata:         model.JSONBMap{"spread_type": "loss"},
+			EntryType:        ledgerDomain.EntryTypeDebit,
+			Metadata:         database.JSONBMap{"spread_type": "loss"},
 		})
 	}
 

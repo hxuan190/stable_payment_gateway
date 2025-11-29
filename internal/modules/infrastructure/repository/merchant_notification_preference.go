@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hxuan190/stable_payment_gateway/internal/model"
+	notificationDomain "github.com/hxuan190/stable_payment_gateway/internal/modules/notification/domain"
 	"gorm.io/gorm"
 )
 
@@ -26,7 +26,7 @@ func NewMerchantNotificationPreferenceRepository(db *gorm.DB) *MerchantNotificat
 	}
 }
 
-func (r *MerchantNotificationPreferenceRepository) Create(pref *model.MerchantNotificationPreference) error {
+func (r *MerchantNotificationPreferenceRepository) Create(pref *notificationDomain.MerchantNotificationPreference) error {
 	if pref == nil {
 		return errors.New("merchant notification preference cannot be nil")
 	}
@@ -45,12 +45,12 @@ func (r *MerchantNotificationPreferenceRepository) Create(pref *model.MerchantNo
 	return nil
 }
 
-func (r *MerchantNotificationPreferenceRepository) GetByID(id uuid.UUID) (*model.MerchantNotificationPreference, error) {
+func (r *MerchantNotificationPreferenceRepository) GetByID(id uuid.UUID) (*notificationDomain.MerchantNotificationPreference, error) {
 	if id == uuid.Nil {
 		return nil, errors.New("invalid preference ID")
 	}
 
-	pref := &model.MerchantNotificationPreference{}
+	pref := &notificationDomain.MerchantNotificationPreference{}
 	if err := r.db.Where("id = ?", id).First(pref).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPreferenceNotFound
@@ -61,12 +61,12 @@ func (r *MerchantNotificationPreferenceRepository) GetByID(id uuid.UUID) (*model
 	return pref, nil
 }
 
-func (r *MerchantNotificationPreferenceRepository) GetByMerchantAndChannel(merchantID uuid.UUID, channel model.NotificationChannel) (*model.MerchantNotificationPreference, error) {
+func (r *MerchantNotificationPreferenceRepository) GetByMerchantAndChannel(merchantID uuid.UUID, channel notificationDomain.NotificationChannel) (*notificationDomain.MerchantNotificationPreference, error) {
 	if merchantID == uuid.Nil {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
 
-	pref := &model.MerchantNotificationPreference{}
+	pref := &notificationDomain.MerchantNotificationPreference{}
 	if err := r.db.Where("merchant_id = ? AND channel = ?", merchantID, channel).First(pref).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPreferenceNotFound
@@ -77,12 +77,12 @@ func (r *MerchantNotificationPreferenceRepository) GetByMerchantAndChannel(merch
 	return pref, nil
 }
 
-func (r *MerchantNotificationPreferenceRepository) GetByMerchantID(merchantID uuid.UUID) ([]*model.MerchantNotificationPreference, error) {
+func (r *MerchantNotificationPreferenceRepository) GetByMerchantID(merchantID uuid.UUID) ([]*notificationDomain.MerchantNotificationPreference, error) {
 	if merchantID == uuid.Nil {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
 
-	var prefs []*model.MerchantNotificationPreference
+	var prefs []*notificationDomain.MerchantNotificationPreference
 	if err := r.db.Where("merchant_id = ?", merchantID).
 		Order("channel").
 		Find(&prefs).Error; err != nil {
@@ -92,12 +92,12 @@ func (r *MerchantNotificationPreferenceRepository) GetByMerchantID(merchantID uu
 	return prefs, nil
 }
 
-func (r *MerchantNotificationPreferenceRepository) GetEnabledByMerchantID(merchantID uuid.UUID) ([]*model.MerchantNotificationPreference, error) {
+func (r *MerchantNotificationPreferenceRepository) GetEnabledByMerchantID(merchantID uuid.UUID) ([]*notificationDomain.MerchantNotificationPreference, error) {
 	if merchantID == uuid.Nil {
 		return nil, errors.New("merchant ID cannot be empty")
 	}
 
-	var prefs []*model.MerchantNotificationPreference
+	var prefs []*notificationDomain.MerchantNotificationPreference
 	if err := r.db.Where("merchant_id = ? AND enabled = ?", merchantID, true).
 		Order("channel").
 		Find(&prefs).Error; err != nil {
@@ -107,7 +107,7 @@ func (r *MerchantNotificationPreferenceRepository) GetEnabledByMerchantID(mercha
 	return prefs, nil
 }
 
-func (r *MerchantNotificationPreferenceRepository) Update(pref *model.MerchantNotificationPreference) error {
+func (r *MerchantNotificationPreferenceRepository) Update(pref *notificationDomain.MerchantNotificationPreference) error {
 	if pref == nil {
 		return errors.New("merchant notification preference cannot be nil")
 	}
@@ -117,7 +117,7 @@ func (r *MerchantNotificationPreferenceRepository) Update(pref *model.MerchantNo
 
 	pref.UpdatedAt = time.Now()
 
-	result := r.db.Model(&model.MerchantNotificationPreference{}).Where("id = ?", pref.ID).Updates(map[string]interface{}{
+	result := r.db.Model(&notificationDomain.MerchantNotificationPreference{}).Where("id = ?", pref.ID).Updates(map[string]interface{}{
 		"enabled":                  pref.Enabled,
 		"subscribed_events":        pref.SubscribedEvents,
 		"config":                   pref.Config,
@@ -146,7 +146,7 @@ func (r *MerchantNotificationPreferenceRepository) Enable(id uuid.UUID) error {
 		return errors.New("invalid preference ID")
 	}
 
-	result := r.db.Model(&model.MerchantNotificationPreference{}).
+	result := r.db.Model(&notificationDomain.MerchantNotificationPreference{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"enabled":    true,
@@ -169,7 +169,7 @@ func (r *MerchantNotificationPreferenceRepository) Disable(id uuid.UUID) error {
 		return errors.New("invalid preference ID")
 	}
 
-	result := r.db.Model(&model.MerchantNotificationPreference{}).
+	result := r.db.Model(&notificationDomain.MerchantNotificationPreference{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"enabled":    false,
@@ -193,7 +193,7 @@ func (r *MerchantNotificationPreferenceRepository) IncrementNotificationCount(id
 	}
 
 	now := time.Now()
-	result := r.db.Model(&model.MerchantNotificationPreference{}).
+	result := r.db.Model(&notificationDomain.MerchantNotificationPreference{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"total_notifications_sent": gorm.Expr("total_notifications_sent + 1"),
@@ -217,7 +217,7 @@ func (r *MerchantNotificationPreferenceRepository) Delete(id uuid.UUID) error {
 		return errors.New("invalid preference ID")
 	}
 
-	result := r.db.Delete(&model.MerchantNotificationPreference{}, "id = ?", id)
+	result := r.db.Delete(&notificationDomain.MerchantNotificationPreference{}, "id = ?", id)
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete merchant notification preference: %w", result.Error)
 	}
@@ -231,16 +231,16 @@ func (r *MerchantNotificationPreferenceRepository) Delete(id uuid.UUID) error {
 
 func (r *MerchantNotificationPreferenceRepository) Count() (int64, error) {
 	var count int64
-	if err := r.db.Model(&model.MerchantNotificationPreference{}).Count(&count).Error; err != nil {
+	if err := r.db.Model(&notificationDomain.MerchantNotificationPreference{}).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count merchant notification preferences: %w", err)
 	}
 
 	return count, nil
 }
 
-func (r *MerchantNotificationPreferenceRepository) CountByChannel(channel model.NotificationChannel) (int64, error) {
+func (r *MerchantNotificationPreferenceRepository) CountByChannel(channel notificationDomain.NotificationChannel) (int64, error) {
 	var count int64
-	if err := r.db.Model(&model.MerchantNotificationPreference{}).
+	if err := r.db.Model(&notificationDomain.MerchantNotificationPreference{}).
 		Where("channel = ? AND enabled = ?", channel, true).
 		Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count preferences by channel: %w", err)
